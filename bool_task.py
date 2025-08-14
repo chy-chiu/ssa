@@ -8,7 +8,7 @@ from langchain.schema import AIMessage, HumanMessage, SystemMessage
 import ast
 
 
-from task import Task, train_agent_on_task
+from task import TaskBase, train_agent_on_task
 
 class Question(BaseModel):
     question_text: str
@@ -21,7 +21,7 @@ class BooleanRule:
     expression: str  # Human readable
     evaluator: callable  # Function to evaluate
 
-class BooleanReasoningTask(Task):
+class BooleanReasoningTask(TaskBase):
     def __init__(self, task_id: str, n_diseases: int = 3, n_symptoms: int = 6, n_labs: int = 4, p_feedback_rules: int = 2):
         super().__init__(task_id)
         self.n_diseases = n_diseases
