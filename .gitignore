@@ -1,2 +1,4 @@
 secrets.yaml
 __pycache__/
+.venv
+*.zip

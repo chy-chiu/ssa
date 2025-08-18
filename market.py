@@ -2,11 +2,17 @@
 import numpy as np
 from typing import List, Dict, Optional, Tuple, Set, Any
 from pydantic import BaseModel
-from task import TaskRunner, TaskBase
-from agent import MarketResponse, MockAgent, AgentBase, MarketInfo, LLMAgent
+from task import SkillTaskRunner, TaskBase
+from agent import MarketResponse, MockAgent, AgentBase, MarketInfo, LLMAgent, OracleAgent
 from loguru import logger
+import asyncio
 
 from utils import format_dict_str
+
+import nest_asyncio
+
+# Add this at the top of your notebook/script
+nest_asyncio.apply()
 
 class RoundData(BaseModel):
     """Info retained for each round"""
@@ -31,19 +37,19 @@ class LabourMarket:
         self.round_history: List[RoundData] = []
         self.round_counter = 0
 
-        # To replace with full tasks
+        # TODO: To replace with full tasks
         self.runners = {
-            task.id: [TaskRunner(agent, task) for agent in agents] for task in tasks
+            task.id: [SkillTaskRunner(agent, task) for agent in agents] for task in tasks
         }
 
     def generate_tasks(self) -> np.ndarray:
         """Generate task payments. Placeholder for now"""
         return {task_id: 10 for task_id in self.tasks}
 
-    def skill_weighted_ranking(self, skills: np.ndarray) -> np.ndarray:
+    def skill_weighted_ranking(self, skills: np.ndarray, t=0) -> np.ndarray:
         """Efficient skill-weighted ranking using Gumbel-Max trick."""
         # Add Gumbel noise to log-skills
-        gumbel_noise = -np.log(-np.log(np.random.uniform(0, 1, len(skills))))
+        gumbel_noise = -np.log(-np.log(np.random.uniform(0, 1, len(skills)))) * t
         perturbed_skills = skills + gumbel_noise
 
         # Return indices sorted by perturbed skills (descending)
@@ -159,7 +165,32 @@ class LabourMarket:
         total_rewards_str += "]"
         
         return total_rewards_str
+        
+    async def get_agent_bids_async(self, market_info: MarketInfo) -> List[List[str]]:
+        """Get agent bids asynchronously"""
+        
+        async def get_single_preference_async(agent: AgentBase):
+            # If agent.get_preferences is sync, run in executor
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(None, agent.get_preferences, market_info)
+        
+        # Create tasks for all agents
+        tasks = [get_single_preference_async(agent) for agent in self.agents]
+        
+        # Run all tasks concurrently
+        try:
+            agent_preferences = await asyncio.gather(*tasks, return_exceptions=True)
             
+            # Handle any exceptions
+            for i, result in enumerate(agent_preferences):
+                if isinstance(result, Exception):
+                    print(f"Agent {self.agents[i].id} preference call failed: {result}")
+                    agent_preferences[i] = []  # Default empty preference
+                    
+            return agent_preferences
+        except Exception as e:
+            print(f"Batch preference call failed: {e}")
+            return [[] for _ in self.agents]     
 
     def simulate_timestep(self) -> Dict:
         """
@@ -183,7 +214,8 @@ class LabourMarket:
         
         market_info = MarketInfo(history=market_history_string, task_reward=task_base_rewards)
         
-        agent_preferences = [agent.get_preferences(market_info=market_info) for agent in self.agents]
+        # agent_preferences = [agent.get_preferences(market_info=market_info) for agent in self.agents]
+        agent_preferences = asyncio.run(self.get_agent_bids_async(market_info))
 
         # Create task preferences based on skills
         market_preferences = self.generate_market_preference()
@@ -264,60 +296,127 @@ class MockTask:
         self.id = task_id
         self.base_reward = 10
 
+###  OLD EXPERIMENTS
+# # %%
+# # Quick test # 1
 
-# Quick test
-if __name__ == "__main__":
-    # Create market and agents
-    task_ids = ["aa", "bb", "cc"]
-    tasks = [MockTask(t) for t in task_ids]
-    agents = [MockAgent(f"agent_{i}", task_ids=task_ids) for i in range(5)]
-    agents.append(LLMAgent(agent_id="agent_5", task_ids=task_ids))
+# # Create market and agents
+# task_ids = ["task_a", "task_b", "task_c", "task_d"]
+# tasks = [MockTask(t) for t in task_ids]
+# agents = [MockAgent(f"agent_{i}", task_ids=task_ids) for i in range(7)]
+# agents.append(LLMAgent(agent_id="llm_agent", task_ids=task_ids))
 
-    market = LabourMarket(tasks=tasks, agents=agents)
+# market = LabourMarket(tasks=tasks, agents=agents)
 
-    # Run simulation
+# # Run simulation
+
+# for _ in range(20):
+#     market.simulate_timestep()
+# # market.simulate_timestep()
     
-    market.simulate_timestep()
-    market.simulate_timestep()
+# # %%
+# import matplotlib.pyplot as plt
+# agent = market.agents[-1]
+
+# plt.figure()
+# for task_id, skill_hx in agent.all_skill_history.items():
+#     plt.plot(skill_hx, label=task_id)     
+# plt.legend()
+# plt.show()
+
+# plt.figure()
+# for agent in agents: 
+#     plt.plot(np.cumsum(agent.reward_history), label=agent.id)
+
+# plt.legend()
+# plt.show()
+
+
+# # %% 
+# # Create market and agents
+# task_ids = ["task_a", "task_b", "task_c", "task_d"]
+# tasks = [MockTask(t) for t in task_ids]
+# agents = [MockAgent(f"agent_{i}", task_ids=task_ids) for i in range(9)]
+
+# for ix in [0, 1, 2]:
+#     agents[ix].preferences = ["task_a", "task_b", "task_c", "task_d"]
+
+# for ix in [3, 4, 5]:
+#     agents[ix].preferences = ["task_b", "task_c", "task_a", "task_d"]
+
+# for ix in [6, 7, 8]:
+#     agents[ix].preferences = ["task_c", "task_a", "task_b", "task_d"]
     
-# print(market.get_history_string())
+# agents.append(LLMAgent(agent_id="llm_agent", task_ids=task_ids))
 
-agent = agents[0]
-# print(agent.generate_agent_history_string())
+# market = LabourMarket(tasks=tasks, agents=agents)
 
-# # agent_preferences = [agent.get_preferences() for agent in agents]
-# agent_preferences
+# # Run simulation
+# for _ in range(20):
+#     market.simulate_timestep()
+# # market.simulate_timestep()
 
-# agent_skills = np.array(
-#     [agent.get_skills() for agent in agents]
-# )
-# print(agent_preferences)
-# market_preference = {
-#     0: [0, 1, 2, 3, 4],
-#     1: [3, 0, 1, 2, 4],
-#     2: [2, 3, 4, 1, 0],
-# }
+# # %% 
+# # LLM vs Oracle
+# # Create market and agents
+# task_ids = ["task_a", "task_b", "task_c"]
+# tasks = [MockTask(t) for t in task_ids]
+# agents = [LLMAgent(f"llm_agent_{i}", task_ids=task_ids, verbose=False) for i in range(4)]
+# agents.append(OracleAgent(agent_id="oracle_agent", task_ids=task_ids))
 
-# market.match_task(agent_preferences, market_preference)
+# market = LabourMarket(tasks=tasks, agents=agents)
+
+# # Run simulation
+# for _ in range(20):
+#     market.simulate_timestep()
+
 
 # # %%
-# def skill_weighted_ranking(skills: np.ndarray) -> np.ndarray:
-#     """Efficient skill-weighted ranking without repeated sampling"""
+# import matplotlib.pyplot as plt
+# agent = market.agents[-1]
 
-#     # return np.argsort(-skills)
-#     uniform_random = np.random.uniform(0, 1, len(skills))
-#     # uniform_random = 1
+# plt.figure()
+# for task_id, skill_hx in agent.all_skill_history.items():
+#     plt.plot(skill_hx, label=task_id)     
+# plt.legend()
+# plt.show()
 
-#     scores = uniform_random ** (1.0 / skills)
+# plt.figure()
+# for agent in agents: 
+#     plt.plot(np.cumsum(agent.reward_history), label=agent.id)
 
-#     print(1 / skills, scores)
+# plt.legend()
+# plt.show()
 
-#     return np.argsort(-scores)  # Descending order (best first)
-
-
-# skills = np.array([1000, 1, 1, 1])
-# skill_weighted_ranking(skills)
 # # %%
-# 1 ** (1 / skills)
+# agent: LLMAgent = market.agents[4]
 
-# %%
+# plt.figure()
+# for task_id, skill_hx in agent.all_skill_history.items():
+#     plt.plot(skill_hx, label=task_id)     
+# plt.legend()
+# plt.show()
+
+# # %%
+# np.sum(agent.total_tokens for agent in agents)
+# # print(market.get_history_string())
+
+# # agent = agents[0]
+# # print(agent.generate_agent_history_string())
+
+# # # agent_preferences = [agent.get_preferences() for agent in agents]
+# # agent_preferences
+
+# # agent_skills = np.array(
+# #     [agent.get_skills() for agent in agents]
+# # )
+# # print(agent_preferences)
+# # market_preference = {
+# #     0: [0, 1, 2, 3, 4],
+# #     1: [3, 0, 1, 2, 4],
+# #     2: [2, 3, 4, 1, 0],
+# # }
+
+# # market.match_task(agent_preferences, market_preference)
+
+# # %%

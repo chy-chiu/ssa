@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from typing import List, Any, Tuple
 from pydantic import BaseModel
 import numpy as np
+from agent import AgentBase
 
 class Question(BaseModel):
     question_text: str
@@ -37,19 +38,33 @@ class TaskBase(ABC):
         pass
     
 
-class TaskRunner:
+class TaskRunnerBase(ABC):
     
-    def __init__(self, agent, task):
+    def __init__(self, agent: AgentBase, task: TaskBase):
         self.agent = agent
         self.task = task
+    
+    @abstractmethod    
+    def run_task(self):
+        pass 
+
+    
+
+class SkillTaskRunner(TaskRunnerBase):
+    """Simple skill-based runner with reward depending on agent skill + noise only"""
+    
+    agent: AgentBase
+    task: TaskBase
+    
+    def __init__(self, agent: AgentBase, task: TaskBase):
+        super().__init__(agent, task)
         
     def run_task(self):
         pass 
     
     def perform_task(self) -> Tuple[float, float, str]:
         # TODO: Make task payment here dynamic / stochastic
-        
-        ADJUSTED_REWARD = self.task.base_reward * np.random.uniform(0, 1)
+        ADJUSTED_REWARD = self.task.base_reward * (np.random.uniform(0, 1) * 0.2 + self.agent.skills[self.task.id] * 0.8)
         feedback = ""
         return self.task.base_reward, ADJUSTED_REWARD, feedback
                 

@@ -55,9 +55,16 @@ class AgentBase(ABC):
     def receive_response(self, market_response: MarketResponse):
         self.market_history.append(market_response)
         self.total_reward += market_response.adjusted_reward
+        
+        allocated_task_id = market_response.allocated
+        
+        if allocated_task_id: 
+            self.grow_skill(allocated_task_id)
+        else:
+            self.grow_skill(market_response.preference[0])
 
     def grow_skill(self, task_id: str, a=0.8, e=0.95):
-        """Convex growth function. a is the growth factor, and e the decay factor"""
+        """Convex growth function. a is the growth factor, and e the decay factor, for a default task"""
 
         for _task_id in self.skills.keys():
             if _task_id == task_id:
@@ -75,6 +82,19 @@ class AgentBase(ABC):
 
     def get_skill_history(self, task_id: str):
         return np.array([round(hx[task_id], 3) for hx in self.skill_history])
+    
+    @property
+    def all_skill_history(self):
+        return {task_id: self.get_skill_history(task_id) for task_id in self.task_ids}
+    
+    @property
+    def reward_history(self):
+        return np.array([round(hx.adjusted_reward) for hx in self.market_history])
+    
+    @property
+    def allocation_history(self):
+        return np.array([round(hx.allocated) for hx in self.market_history])
+    
 
     def generate_agent_history_string(self, n_steps=10):
 
@@ -149,7 +169,8 @@ SYSTEM_BASE = """You are {agent_id}, a strategic decision-making agent competing
 
 MARKET DYNAMICS:
 - {num_tasks} tasks are available each round: {task_list}
-- Each task has different reward potential and competitive landscape
+- At each round, these tasks will be listed with a budget price by the client. You are to perform bidding on these tasks depending on the price.
+Each task has different reward potential and competitive landscape
 - You possess latent skill levels for each task (unknown to you initially)
 - Task allocation is skill-based: higher skill = higher probability of winning
 - This is a repeated game where strategic specialization and market positioning matter
@@ -169,12 +190,13 @@ OUTPUT: Provide your reasoning and rank all tasks from most preferred (highest p
 ROUND_BASE = """This is the current available history from the last 10 rounds:
 {market_history}
 
-This was your last task order preference and reward gained: 
+This was your last actions and reward gained: 
 {agent_history}
 
 The following are this round's maximum rewawrds for each task: {task_reward}
+"""
 
-Please preference tasks to perform as per instruction"""
+INSTRUCTION = "\nPlease bid for tasks tasks to perform as per instruction"
 
 
 class LLMAgent(AgentBase):
@@ -198,6 +220,10 @@ class LLMAgent(AgentBase):
         self.verbose = verbose
 
         self.trace: List[TaskOrderReply] = []
+        
+        self.token_usage = []
+        
+        self.round = 0
 
     def construct_llm_message(self, market_info: MarketInfo):
 
@@ -205,7 +231,7 @@ class LLMAgent(AgentBase):
             market_history=market_info.history,
             agent_history=self.generate_agent_history_string(),
             task_reward=market_info.task_reward,
-        )
+        ) + INSTRUCTION
 
     def rank_skills(self):
         pass
@@ -223,13 +249,33 @@ class LLMAgent(AgentBase):
         )
 
         self.trace.append(task_order_reply)
+        
+        self.token_usage.append(response.response_metadata['token_usage'])
 
         if self.verbose:
-            logger.info(f"=== AGENT {self.id} ===\n{task_order_reply.format()}")
+            logger.info(f"=== ROUND {self.round} | AGENT {self.id} ===\n{task_order_reply.format()}")
+            
+        self.round += 1
 
         return task_order_reply.order
 
         # Needs to be a .json - use langchain pipes?
+
+    @property
+    def total_tokens(self):
+        return np.sum([t['total_tokens'] for t in self.token_usage])
+
+class OracleAgent(LLMAgent):
+    
+    def construct_llm_message(self, market_info: MarketInfo):
+        
+        SKILL_PROMPT = f"\nThis is your current skill: {self.skills}\n"
+
+        return ROUND_BASE.format(
+            market_history=market_info.history,
+            agent_history=self.generate_agent_history_string(),
+            task_reward=market_info.task_reward,
+        ) + SKILL_PROMPT + INSTRUCTION
 
 
 # # %%

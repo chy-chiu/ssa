@@ -1,9 +1,17 @@
-from base import TaskBase, Question
+from task import TaskBase, Question
 from scipy.stats import kendalltau
 import numpy as np
 import random
 import string
 from typing import List, Any, Tuple
+
+from utils import init_openrouter_chat_model, init_azure_model
+from langchain.schema import AIMessage, HumanMessage, SystemMessage
+
+from langchain.schema import SystemMessage, HumanMessage
+import ast
+import re
+
 
 class OrderingTask(TaskBase):
     def __init__(
@@ -104,11 +112,6 @@ class OrderingTask(TaskBase):
         # Convert correlation to similarity score (tau ranges from -1 to 1)
         # Return value between 0 and 1, where 1 is perfect agreement
         return (tau + 1) / 2
-
-
-from langchain.schema import SystemMessage, HumanMessage
-import ast
-import re
 
 AGENT_SYSTEM = """You are an ordering agent. Your goal is to order items from largest to smallest given a set of items. Additionally, you are given some pre-existing knowledge, which may or may not help you with your comparisons for that particular question.
 
@@ -257,16 +260,6 @@ if __name__ == "__main__":
     task.score_response(question, ["KZL", "GAY", "KTW"])
 
     # %%
-    from utils import init_openrouter_chat_model
-    from langchain.schema import AIMessage, HumanMessage, SystemMessage
-
-    OPENROUTER_API = (
-        "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"
-    )
-
-    model = init_openrouter_chat_model(
-        "openai/gpt-5-chat", api_key=OPENROUTER_API, temperature=0.5
-    )
 
     # %%
     scores_1 = run_ordering_experiment(
