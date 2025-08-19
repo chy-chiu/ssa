@@ -95,7 +95,7 @@ class GraphPathTask(TaskBase):
         
         return float('inf')  # No path found
     
-    def generate_probe_question(self) -> Question:
+    def generate_question(self) -> Question:
         """Generate a random shortest path length question"""
         if not self.edges:
             raise RuntimeError("Generate ground truth first")
@@ -208,7 +208,7 @@ if __name__ == "__main__":
     print(f"\nShortest path A to H: {test_path_length}")
     
     # Generate question and simulate interaction
-    q = task.generate_probe_question()
+    q = task.generate_question()
     print(f"\nQuestion: {q.question_text}")
     print(f"True answer: {q.correct_answer}")
     

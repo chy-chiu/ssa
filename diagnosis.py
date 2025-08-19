@@ -107,7 +107,7 @@ class DiagnosisTask(TaskBase):
         binary_id = "".join(class_path_binary)
         return self.class_name_map[binary_id]
 
-    def generate_probe_question(self) -> Question:
+    def generate_question(self) -> Question:
         """
         Generates a new "alien patient" with random readings and asks for a diagnosis.
         """
@@ -225,7 +225,7 @@ if __name__ == "__main__":
     print("-" * 20, "\n")
 
     # 3. Generate a question
-    q = task.generate_probe_question()
+    q = task.generate_question()
     print("--- Agent Interaction ---")
     print(f"Question: {q.question_text}")
     print(f"Correct Answer (for our reference): {q.correct_answer}")
@@ -475,7 +475,7 @@ def train_agent_on_diagnosis_task(
 
         for j in range(batch_size):
             # 1. Generate a probe question from the task
-            question = task.generate_probe_question()
+            question = task.generate_question()
 
             # 2. Agent attempts to answer
             agent_response = agent.probe_task(question)

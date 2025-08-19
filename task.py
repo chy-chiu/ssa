@@ -1,16 +1,15 @@
 # %%
 from abc import ABC, abstractmethod
 
-from typing import List, Any, Tuple
+from typing import List, Any, Tuple, Dict, Optional
 from pydantic import BaseModel
 import numpy as np
-from agent import AgentBase
+from loguru import logger
 
 class Question(BaseModel):
     question_text: str
     question_data: Any  # Task-specific data needed for scoring
     correct_answer: Any
-
 
 class TaskBase(ABC):
     """Abstract base class for all task types"""
@@ -25,49 +24,114 @@ class TaskBase(ABC):
         """Generate deterministic ground truth for this task"""
         pass
 
-    def generate_probe_question(self) -> Question:
-        """Generate a single probe question"""
+    def generate_question(self) -> Question:
+        """Generate a question to probe agent performance"""
         pass
 
     def score_response(self, question: Question, agent_response: Any) -> bool:
         """Score agent's response to a question"""
         pass
 
-    def extract_feedback_info(self, question: Question) -> Any:
+    def extract_feedback_info(self, question: Question, agent_response: Any) -> Any:
         """Extract information needed for agent feedback"""
         pass
-    
 
-class TaskRunnerBase(ABC):
+class TaskSubAgent(ABC):
+    """Subagent class to handle specific tasks"""
     
-    def __init__(self, agent: AgentBase, task: TaskBase):
+    system_prompt: str
+    skill_level: float
+    
+    def __init__(self, model, task_id: str):
+        self.model = model
+        self.task_id = task_id
+        self.knowledge_base: Dict[str, str] = (
+            {}
+        ) 
+
+    @abstractmethod    
+    def probe_task(self, question: Question) -> str: 
+        """Calls LLM to answer a question. Need better name than probe_task"""
+        pass
+    
+    @abstractmethod
+    def update_knowledge_base(self, feedback_info: Optional[Tuple[str, str]]):
+        """Updates the knowledge base"""
+        pass
+
+class TaskRunner:
+    
+    def __init__(self, agent: TaskSubAgent, task: TaskBase):
         self.agent = agent
         self.task = task
     
-    @abstractmethod    
-    def run_task(self):
-        pass 
-
-    
-
-class SkillTaskRunner(TaskRunnerBase):
-    """Simple skill-based runner with reward depending on agent skill + noise only"""
-    
-    agent: AgentBase
-    task: TaskBase
-    
-    def __init__(self, agent: AgentBase, task: TaskBase):
-        super().__init__(agent, task)
-        
-    def run_task(self):
-        pass 
-    
     def perform_task(self) -> Tuple[float, float, str]:
-        # TODO: Make task payment here dynamic / stochastic
-        ADJUSTED_REWARD = self.task.base_reward * (np.random.uniform(0, 1) * 0.2 + self.agent.skills[self.task.id] * 0.8)
-        feedback = ""
-        return self.task.base_reward, ADJUSTED_REWARD, feedback
-                
+        """Returns a 0-1 float reflecting agent performance"""
+        
+        question = self.task.generate_question()
+        agent_response = self.agent.probe_task(question)
+        agent_performance = self.task.score_response(question, agent_response)
+        feedback = self.task.extract_feedback_info(question, agent_response)
+        
+        # TODO: ? Maybe this should be randomly increasing by chance ?
+        # Alternatively, if it's just random snippets of information, naturally the growth curve will be convex and plateaus
+        self.agent.update_knowledge_base(feedback)
+        
+        return agent_performance
+
+    def upgrade_skill(self): 
+        """Statically upgrade a task for the agent I guess LOL"""
+        
+        feedback = self.task.extract_feedback_info(None, None)
+        self.agent.update_knowledge_base(feedback)
+    
+        
+class ProxyTask(TaskBase):
+    """Proxy task that rewards purely by skill level"""
+    
+    def __init__(self, task_id: str):
+        super().__init__(task_id=task_id)
+        self.base_reward = 10
+        self.debug_int = 0
+        
+    def generate_ground_truth(self, seed = None):
+        return None
+    
+    def generate_question(self):
+        return None
+    
+    def score_response(self, question, agent_response):
+        return float(agent_response)
+    
+    def extract_feedback_info(self, question, agent_response):
+        logger.debug(self.debug_int)
+        self.debug_int += 1
+        return None
+    
+class ProxyAgent(TaskSubAgent):
+    """Proxy agent that has a skill √alue that grows with repeated tasks"""
+    
+    def __init__(self, model, task_id: str):
+        super().__init__(model=model, task_id=task_id)
+        self.skill_level = 1e-5
+        
+    def probe_task(self, question):
+        return self.skill_level
+    
+    def update_knowledge_base(self, feedback_info):
+        self.skill_level = 1 - (1 - self.skill_level) * 0.9
+        return None
+    
+    
+# %%
+# Test
+# task_id = "test"
+# agent = ProxyAgent(model = None, task_id=task_id)
+# task = ProxyTask(task_id=task_id)
+
+# runner = TaskRunner(agent, task)
+# for _ in range(10):
+#     print(runner.perform_task())
 # TODO: Incorporate logic below into the runner class
 # %%
 

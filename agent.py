@@ -10,11 +10,12 @@ from langchain_core.prompts import (
 )
 import numpy as np
 from utils import init_azure_model
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Literal, Tuple
 from langchain.schema import AIMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 import matplotlib.pyplot as plt
 from loguru import logger
+from task import TaskBase, TaskSubAgent, TaskRunner, ProxyAgent
 
 
 class MarketResponse(BaseModel):
@@ -26,30 +27,55 @@ class MarketResponse(BaseModel):
     task_id: Optional[str] = None
     base_reward: float = 0
     adjusted_reward: float = 0
-    feedback: str = ""
-
 
 class MarketInfo(BaseModel):
     """Data class for market to provide info for agent to action on decisions each round"""
 
     history: str
-    task_reward: str
+    task_reward: Dict[str, float] # task_id, budget
 
+
+class TaskActionReply(BaseModel):
+    reasoning: str = Field(description="Your reasoning for this choice")
+    action: Literal['bid', 'invest'] = Field(description="Your action for this round. You can either submit bids for jobs ('bid') or invest in a skill ('invest')")
+    jobs: List[Tuple[str, float]] = Field(
+        description="The list of jobs you want to work on or invest in, from the highest to lowest priority. Return a list of tuples in format (job_id, budget). Put budget as -1 if you are investing in a skill."
+    )
+    
+    def format(self):
+        return f"ACTION: {self.action}\nREASONING: {self.reasoning}\nTASK ORDER: {self.jobs}"
 
 class AgentBase(ABC):
-
-    def __init__(self, agent_id: int, task_ids: List[str], episilon=1e-5):
-
+    """Abstract class for all agents"""
+    def __init__(self, agent_id: int, tasks: List[TaskBase], model: ChatOpenAI = None, verbose=True):
+        
         self.id = agent_id
-        self.n_tasks = len(task_ids)
-        self.task_ids = task_ids
-        self.skills = {t: episilon for t in task_ids}
-        self.skill_history = [self.skills.copy()]
+        self.n_tasks = len(tasks)
+        self.task_ids = [task.id for task in tasks]
+        
+        # TODO: Add subagent types here
+        self.subagents = {
+            task.id: ProxyAgent(model=model, task_id=task.id)
+            for task in tasks
+        }
+        
+        self.reputation = {task.id: 1 for task in tasks}
+        
+        # self.runners = {
+        #     task.id: TaskRunner(self.subagents[task.id], task)
+        #     for task in tasks
+        # }
+        
+        self.skill_history = [self.skills]
         self.market_history: List[MarketResponse] = []
         self.total_reward = 0
+        
+    @property
+    def skills(self) -> List[float]:
+        return {task_id: subagent.skill_level for task_id, subagent in self.subagents.items()}
 
     @abstractmethod
-    def get_preferences(self, market_info: MarketInfo) -> List[str]:
+    def get_agent_action(self, market_info: MarketInfo)  -> Tuple[Literal['bid', 'invest'], List[Tuple[str, float]]]:
         pass
 
     def receive_response(self, market_response: MarketResponse):
@@ -58,28 +84,8 @@ class AgentBase(ABC):
         
         allocated_task_id = market_response.allocated
         
-        if allocated_task_id: 
-            self.grow_skill(allocated_task_id)
-        else:
-            self.grow_skill(market_response.preference[0])
-
-    def grow_skill(self, task_id: str, a=0.8, e=0.95):
-        """Convex growth function. a is the growth factor, and e the decay factor, for a default task"""
-
-        for _task_id in self.skills.keys():
-            if _task_id == task_id:
-                skill_level = self.skills[task_id]
-
-                skill_level = 1 - (1 - skill_level) * a
-
-                self.skills[task_id] = skill_level
-
-            else:
-                skill_level = self.skills[_task_id]
-                self.skills[_task_id] = skill_level * e
-
-        self.skill_history.append(self.skills.copy())
-
+        # self.runners[allocated_task_id].perform_task()
+        
     def get_skill_history(self, task_id: str):
         return np.array([round(hx[task_id], 3) for hx in self.skill_history])
     
@@ -95,7 +101,6 @@ class AgentBase(ABC):
     def allocation_history(self):
         return np.array([round(hx.allocated) for hx in self.market_history])
     
-
     def generate_agent_history_string(self, n_steps=10):
 
         if self.market_history:
@@ -124,20 +129,19 @@ def plot_agent_history(agent: AgentBase):
 class MockAgent(AgentBase):
     """Static, mock agent to do things with"""
 
-    def __init__(self, agent_id: int, task_ids: List[str]):
-        super().__init__(agent_id=agent_id, task_ids=task_ids)
+    def __init__(self, agent_id: int, tasks: List[TaskBase], model: ChatOpenAI = None, verbose=True):
+        super().__init__(agent_id=agent_id, tasks=tasks, model=model, verbose=verbose)
         self.preferences = None
 
-    def get_preferences(self, market_info: MarketInfo):
+    def get_agent_action(self, market_info: MarketInfo) -> Tuple[Literal['bid', 'invest'], List[Tuple[str, float]]]:
         """Return pre-defined prefs, otherwise random preferences by default"""
 
-        if self.preferences:
-            return self.preferences
-        else:
-            preferences = [
+        if not self.preferences:
+            self.preferences = [
                 self.task_ids[i] for i in np.random.permutation(self.n_tasks)
             ]
-            return preferences
+        
+        return 'bid', [(p, 10) for p in self.preferences]
 
 
 # agent = MockAgent(agent_id="1", task_ids=['a', 'b', 'c'])
@@ -154,49 +158,38 @@ class MockAgent(AgentBase):
 # # %%
 
 
-class TaskOrderReply(BaseModel):
-    reasoning: str = Field(description="Your reasoning for this choice")
-    order: List[str] = Field(
-        description="Your preferred order for the tasks, from the highest to lowest priority. Must include all tasks: ['a', 'b', 'c', 'd']"
-    )
-
-    def format(self):
-        return f"REASONING: {self.reasoning}\nTASK ORDER: {self.order}"
-
 
 # System prompt
-SYSTEM_BASE = """You are {agent_id}, a strategic decision-making agent competing in a dynamic AI labor market.
+SYSTEM_BASE = """You are {agent_id}, a strategic decision-making agent competing in a dynamic AI labor market. Your main goal is to accumulate as much reward as you can over 100 rounds. 
 
-MARKET DYNAMICS:
-- {num_tasks} tasks are available each round: {task_list}
-- At each round, these tasks will be listed with a budget price by the client. You are to perform bidding on these tasks depending on the price.
-Each task has different reward potential and competitive landscape
-- You possess latent skill levels for each task (unknown to you initially)
-- Task allocation is skill-based: higher skill = higher probability of winning
-- This is a repeated game where strategic specialization and market positioning matter
+MARKET RULES:
+- {num_tasks} tasks are available in the market: {task_list}
+- Each task requires a different skillset. However, you don't know your skill level in each of these tasks. You can expect to get better at a task with repeated attempts at a task through client feedback and practice
+- At each round, the tasks will be listed with an expected budget by the client. You will be competing against other agents to bid for a job by suggesting a price of your own
+- You can also choose to invest in a skill without bidding for a job. You will won't get any income for that round
+- If you fail to bid for a job, your will Invest skills in your top preferred job
+- Each agent has a Reputation value for each task. However, you only know your own reputation in full
+- The client's decision for who gets the task is based on a mix of reputation and price
+- Your reputation and income for a job would depend on your perfomrance on the job
 
 AVAILABLE INFORMATION:
 - Historical allocation data showing which agent won which task in previous rounds
 - Performance feedback: Task outcomes and rewards earned by each agent
 
-You do NOT know your own skill levels or other agents' skill levels
-You do NOT know the exact bidding mechanism or payoffs
-
-OUTPUT: Provide your reasoning and rank all tasks from most preferred (highest probability of winning and/or highest strategic value) to least preferred.
+OUTPUT: Provide your action you plan to take ('bid' or 'invest'), your reasoning, and provide a list of tasks you are interested in bidding for or investing in. from most preferred (highest probability of winning and/or highest strategic value) to least preferred.
 
 {format_instructions}
 """
-
 ROUND_BASE = """This is the current available history from the last 10 rounds:
 {market_history}
 
 This was your last actions and reward gained: 
 {agent_history}
 
-The following are this round's maximum rewawrds for each task: {task_reward}
+The following are this round's budget for each task: {task_reward}
 """
 
-INSTRUCTION = "\nPlease bid for tasks tasks to perform as per instruction"
+INSTRUCTION = "\nPlease bid for tasks to perform / invest on as per instruction"
 
 
 class LLMAgent(AgentBase):
@@ -207,8 +200,8 @@ class LLMAgent(AgentBase):
     ):
         super().__init__(agent_id=agent_id, task_ids=task_ids)
         self.model = model or init_azure_model()
+        self.parser = JsonOutputParser(pydantic_object=TaskActionReply)
 
-        self.parser = JsonOutputParser(pydantic_object=TaskOrderReply)
 
         self.system_prompt = SYSTEM_BASE.format(
             agent_id=self.id,
@@ -219,7 +212,7 @@ class LLMAgent(AgentBase):
 
         self.verbose = verbose
 
-        self.trace: List[TaskOrderReply] = []
+        self.trace: List[TaskActionReply] = []
         
         self.token_usage = []
         
@@ -236,7 +229,7 @@ class LLMAgent(AgentBase):
     def rank_skills(self):
         pass
 
-    def get_preferences(self, market_info: MarketInfo):
+    def get_agent_action(self, market_info: MarketInfo) -> Tuple[Literal['bid', 'invest'], List[Tuple[str, float]]]:
 
         round_message = self.construct_llm_message(market_info)
 
@@ -244,7 +237,7 @@ class LLMAgent(AgentBase):
             [SystemMessage(self.system_prompt), HumanMessage(round_message)]
         )
 
-        task_order_reply = TaskOrderReply.model_validate(
+        task_order_reply = TaskActionReply.model_validate(
             self.parser.parse(response.content)
         )
 
@@ -257,9 +250,7 @@ class LLMAgent(AgentBase):
             
         self.round += 1
 
-        return task_order_reply.order
-
-        # Needs to be a .json - use langchain pipes?
+        return task_order_reply.action, task_order_reply.jobs
 
     @property
     def total_tokens(self):
@@ -309,21 +300,6 @@ class OracleAgent(LLMAgent):
 # last_allocation = "Nil"
 # last_reward = 0
 
-# ROUND_BASE = """
-# This is the current available history from the last 10 rounds:
-# {allocation_history}
-
-# This was your last task order preference and reward gained:
-# {task_order}
-
-# Total reward across agents...
-# (fill in here)
-
-# This was the allocation from last round: {last_allocation}
-# This was your reward: {last_reward}
-
-# Now please preference tasks as per instructions.
-# """
 
 # prompt = ROUND_BASE.format(
 #     allocation_history=allocation_history,
@@ -337,13 +313,13 @@ class OracleAgent(LLMAgent):
 
 # # %%
 # # Set up the parser
-# parser = JsonOutputParser(pydantic_object=TaskOrderReply)
+# parser = JsonOutputParser(pydantic_object=TaskActionReply)
 # format_instructions = parser.get_format_instructions()
 
 
 # task_list = ["a", "b", "c", "d"]
 # system_prompt = SYSTEM_BASE.format(
-#     id=0,
+#     agent_id=0,
 #     task_list=task_list,
 #     num_tasks=len(task_list),
 #     format_instructions=format_instructions,

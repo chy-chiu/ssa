@@ -41,7 +41,7 @@ class OrderingTask(TaskBase):
         # Ground truth is decreasing order: items[0] > items[1] > ... > items[n-1]
         self.ground_truth = self.items.copy()
 
-    def generate_probe_question(self) -> Question:
+    def generate_question(self) -> Question:
         # Select M random items from the N items
         probe_items = random.sample(self.items, self.m_probe_items)
 
@@ -208,7 +208,7 @@ def train_agent_on_task(
 
         # Generate a probe question
         for _ in range(batch_size):
-            question = task.generate_probe_question()
+            question = task.generate_question()
             print(f"Question: {question.question_text}")
 
             # Agent attempts to answer
@@ -252,7 +252,7 @@ if __name__ == "__main__":
     # %%
     task.generate_ground_truth()
     # %%
-    question = task.generate_probe_question()
+    question = task.generate_question()
     question
     # %%
     task.extract_feedback_info(question)

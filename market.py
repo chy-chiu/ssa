@@ -2,8 +2,9 @@
 import numpy as np
 from typing import List, Dict, Optional, Tuple, Set, Any
 from pydantic import BaseModel
-from task import SkillTaskRunner, TaskBase
-from agent import MarketResponse, MockAgent, AgentBase, MarketInfo, LLMAgent, OracleAgent
+from task import TaskRunner, TaskBase, ProxyAgent, ProxyTask
+from copy import deepcopy
+from agent import MarketResponse, AgentBase, MarketInfo, MockAgent, LLMAgent, OracleAgent
 from loguru import logger
 import asyncio
 
@@ -37,25 +38,24 @@ class LabourMarket:
         self.round_history: List[RoundData] = []
         self.round_counter = 0
 
-        # TODO: To replace with full tasks
-        self.runners = {
-            task.id: [SkillTaskRunner(agent, task) for agent in agents] for task in tasks
+        self.task_runners = {
+            task.id: [TaskRunner(task = deepcopy(task), agent = agent.subagents[task.id]) for agent in agents] for task in tasks
         }
 
     def generate_tasks(self) -> np.ndarray:
         """Generate task payments. Placeholder for now"""
         return {task_id: 10 for task_id in self.tasks}
 
-    def skill_weighted_ranking(self, skills: np.ndarray, t=0) -> np.ndarray:
-        """Efficient skill-weighted ranking using Gumbel-Max trick."""
+    def randomise_ranking(self, fitness: np.ndarray, t=0) -> np.ndarray:
+        """Efficient randomised ranking using Gumbel-Max trick."""
         # Add Gumbel noise to log-skills
-        gumbel_noise = -np.log(-np.log(np.random.uniform(0, 1, len(skills)))) * t
-        perturbed_skills = skills + gumbel_noise
+        gumbel_noise = -np.log(-np.log(np.random.uniform(0, 1, len(fitness)))) * t
+        weighted_ranking = fitness + gumbel_noise
 
         # Return indices sorted by perturbed skills (descending)
-        return np.argsort(-perturbed_skills)
+        return np.argsort(-weighted_ranking)
 
-    def generate_market_preference(self) -> List[np.ndarray]:
+    def generate_market_preference(self, agent_pricing: List[Dict[str, float]]) -> List[np.ndarray]:
         """
         Create preference rankings for all tasks based on agent skills
 
@@ -68,11 +68,24 @@ class LabourMarket:
 
         task_prefs = {}
         for task_id in self.task_ids:
-            relevant_skills = np.array([a.skills[task_id] for a in self.agents])
+            
+            agents_bidding = []
+            
+            # This is the score 
+            agents_score = []
+            
+            for agent_idx, agent_task_price in enumerate(agent_pricing):
+                
+                if agent_price := agent_task_price.get(task_id):
+                    agent_reputation = self.agents[agent_idx].reputation[task_id]
+                    agent_score = agent_reputation * -1 + agent_price
+                    
+                    agents_bidding.append(agent_idx)
+                    agents_score.append(agent_score)
+            
+            task_ranking = self.randomise_ranking(agents_score)
 
-            task_ranking = self.skill_weighted_ranking(relevant_skills)
-
-            task_prefs[task_id] = task_ranking
+            task_prefs[task_id] = np.array(agents_bidding)[task_ranking]
 
         return task_prefs
 
@@ -95,7 +108,7 @@ class LabourMarket:
         """
         n_agents = len(agent_preferences)
 
-        # Initialize data structures
+        # 
         agent_next_proposal = np.zeros(
             n_agents, dtype=int
         )  # Next task index to propose to
@@ -139,8 +152,8 @@ class LabourMarket:
 
                 # Task prefers new agent if new agent has lower rank (higher preference)
                 if (
-                    task_agent_rank[task_id][agent]
-                    < task_agent_rank[task_id][current_agent]
+                    task_agent_rank[task_id].get(agent, -1)
+                    > task_agent_rank[task_id].get(agent, -1)
                 ):
                     # Task switches to new agent
                     task_current_match[task_id] = agent
@@ -166,63 +179,61 @@ class LabourMarket:
         
         return total_rewards_str
         
-    async def get_agent_bids_async(self, market_info: MarketInfo) -> List[List[str]]:
+    async def get_agent_actions_async(self, market_info: MarketInfo) -> List[List[Tuple[str, float]]]:
         """Get agent bids asynchronously"""
         
         async def get_single_preference_async(agent: AgentBase):
             # If agent.get_preferences is sync, run in executor
             loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(None, agent.get_preferences, market_info)
+            return await loop.run_in_executor(None, agent.get_agent_action, market_info)
         
         # Create tasks for all agents
         tasks = [get_single_preference_async(agent) for agent in self.agents]
         
         # Run all tasks concurrently
         try:
-            agent_preferences = await asyncio.gather(*tasks, return_exceptions=True)
+            agent_bids = await asyncio.gather(*tasks, return_exceptions=True)
             
             # Handle any exceptions
-            for i, result in enumerate(agent_preferences):
+            for i, result in enumerate(agent_bids):
                 if isinstance(result, Exception):
-                    print(f"Agent {self.agents[i].id} preference call failed: {result}")
-                    agent_preferences[i] = []  # Default empty preference
+                    logger.warning(f"Agent {self.agents[i].id} preference call failed: {result}")
+                    agent_bids[i] = []  # Default empty preference
                     
-            return agent_preferences
+            return agent_bids
         except Exception as e:
-            print(f"Batch preference call failed: {e}")
+            logger.warning(f"Batch preference call failed: {e}")
             return [[] for _ in self.agents]     
 
     def simulate_timestep(self) -> Dict:
         """
         Simulate one timestep of the market
-
-        Args:
-            agents: List of agent objects with get_preferences() and get_skills() methods
-
-        Returns:
-            Dict with matching results and metadata
         """
         # Dummy - Generate tasks and payments.
         # max_payments = self.generate_tasks()
 
-        # Get agent data via API
         self.round_counter += 1
         
         market_history_string = self.get_history_string()
         
         task_base_rewards = format_dict_str({task_id: task.base_reward for task_id, task in self.tasks.items()})
         
-        market_info = MarketInfo(history=market_history_string, task_reward=task_base_rewards)
+        market_info = MarketInfo(history=market_history_string, task_reward={})
         
-        # agent_preferences = [agent.get_preferences(market_info=market_info) for agent in self.agents]
-        agent_preferences = asyncio.run(self.get_agent_bids_async(market_info))
+        # Get agent data via API
+        agent_action_bids = asyncio.run(self.get_agent_actions_async(market_info))
+        
+        agent_preference = [[task_id for task_id, _ in agent_bid] for _, agent_bid in agent_action_bids]
+        agent_job_pricing: List[Dict[str, float]] = [{task_id: agent_price for task_id, agent_price in agent_bid} for agent_action, agent_bid in agent_action_bids if agent_action == "bid"]
+        
+        print(agent_preference)
+        
+        # Create task preferences based on agent skill level and bids
+        market_preferences = self.generate_market_preference(agent_job_pricing)
 
-        # Create task preferences based on skills
-        market_preferences = self.generate_market_preference()
-
-        # Run matching
+        # Run stable matching algorithm
         task_matches, unmatched_agents = self.match_task(
-            agent_preferences, market_preferences
+            agent_preference, market_preferences
         )
 
         base_reward_dict = {}
@@ -234,34 +245,49 @@ class LabourMarket:
             matched_task_agent[task_id] = agent_id
 
             # This step is where the agent actually does the task
-            base_reward, adjusted_reward, feedback = self.runners[task_id][
+            agent_performance = self.task_runners[task_id][
                 agent_idx
             ].perform_task()
             
+            base_reward = agent_job_pricing[agent_idx][task_id]
+            adjusted_reward = round(base_reward * agent_performance, 3)
+            
+            # Update agent reputation here
+            
+            
+            # Log reward
             base_reward_dict[task_id] = base_reward
             agent_reward_dict[agent_id] = round(adjusted_reward, 3)
 
             market_response = MarketResponse(
                 round=self.round_counter,
                 allocated=task_id,
-                preference=agent_preferences[agent_idx],
+                preference=agent_preference[agent_idx],
                 task_id=task_id,
                 base_reward=base_reward,
                 adjusted_reward=adjusted_reward,
-                feedback=feedback,
             )
-
+            
             self.agents[agent_idx].receive_response(market_response)
 
         for agent_idx in unmatched_agents:
-            market_response = MarketResponse(round=self.round_counter, preference=agent_preferences[agent_idx])
+            
+            # Get the first item in order, and get the task_id in first item
+            task_id = agent_preference[agent_idx][0]
+            
+            # For unmatched agents, upgrade their skills here
+            agent_performance = self.task_runners[task_id][
+                agent_idx
+            ].upgrade_skill()
+            
+            market_response = MarketResponse(round=self.round_counter, preference=agent_preference[agent_idx])
             self.agents[agent_idx].receive_response(market_response)
             
             agent_reward_dict[self.agents[agent_idx].id] = 0 
             
         round_data = RoundData(
             round=self.round_counter,
-            agent_preference=agent_preferences,
+            agent_preference=agent_action_bids,
             market_preference=market_preferences,
             matched_task_agent=matched_task_agent,
             unmatched_agents=unmatched_agents,
@@ -290,11 +316,12 @@ class LabourMarket:
         
         return _history + agent_rewards
 
-class MockTask:
+task_ids = ["task_a", "task_b", "task_c", "task_d"]
+tasks = [ProxyTask(t) for t in task_ids]
+agents = [MockAgent(agent_id='abc', tasks=tasks, model=None) for _ in range(5)]
 
-    def __init__(self, task_id: str):
-        self.id = task_id
-        self.base_reward = 10
+market = LabourMarket(tasks, agents)
+market.simulate_timestep()
 
 ###  OLD EXPERIMENTS
 # # %%
@@ -420,3 +447,5 @@ class MockTask:
 # # market.match_task(agent_preferences, market_preference)
 
 # # %%
+
+# %%
