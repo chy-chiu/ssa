@@ -40,7 +40,6 @@ class TaskSubAgent(ABC):
     """Subagent class to handle specific tasks"""
     
     system_prompt: str
-    skill_level: float
     
     def __init__(self, model, task_id: str):
         self.model = model
@@ -58,6 +57,11 @@ class TaskSubAgent(ABC):
     def update_knowledge_base(self, feedback_info: Optional[Tuple[str, str]]):
         """Updates the knowledge base"""
         pass
+    
+    @property
+    def skill_level(self):
+        """Length of knowledge base as proxy of skill level for now?"""
+        return len(self.knowledge_base)
 
 class TaskRunner:
     
@@ -65,7 +69,7 @@ class TaskRunner:
         self.agent = agent
         self.task = task
     
-    def perform_task(self) -> Tuple[float, float, str]:
+    def perform_task(self, upgrade_skill_p: float = 1.0) -> float:
         """Returns a 0-1 float reflecting agent performance"""
         
         question = self.task.generate_question()
@@ -73,9 +77,11 @@ class TaskRunner:
         agent_performance = self.task.score_response(question, agent_response)
         feedback = self.task.extract_feedback_info(question, agent_response)
         
-        # TODO: ? Maybe this should be randomly increasing by chance ?
+        # TODO: ? Maybe this should be randomly increasing ? decrease ? by chance ?
         # Alternatively, if it's just random snippets of information, naturally the growth curve will be convex and plateaus
-        self.agent.update_knowledge_base(feedback)
+        
+        if np.random.uniform(0, 1) <= upgrade_skill_p:
+            self.agent.update_knowledge_base(feedback)
         
         return agent_performance
 
@@ -104,7 +110,7 @@ class ProxyTask(TaskBase):
         return float(agent_response)
     
     def extract_feedback_info(self, question, agent_response):
-        logger.debug(self.debug_int)
+        # logger.debug(f"task_id: {self.id}, id: {self.debug_int}")
         self.debug_int += 1
         return None
     
@@ -113,14 +119,18 @@ class ProxyAgent(TaskSubAgent):
     
     def __init__(self, model, task_id: str):
         super().__init__(model=model, task_id=task_id)
-        self.skill_level = 1e-5
+        self._skill_level = 0.25
         
     def probe_task(self, question):
-        return self.skill_level
+        return np.clip(self._skill_level + np.random.normal(0, 0.1), 0, 1)
     
     def update_knowledge_base(self, feedback_info):
-        self.skill_level = 1 - (1 - self.skill_level) * 0.9
+        self._skill_level = 1 - (1 - self._skill_level) * 0.9
         return None
+    
+    @property
+    def skill_level(self):
+        return self._skill_level
     
     
 # %%

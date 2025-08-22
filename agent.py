@@ -35,7 +35,7 @@ class MarketInfo(BaseModel):
     task_reward: Dict[str, float] # task_id, budget
 
 
-class TaskActionReply(BaseModel):
+class TaskActionResponse(BaseModel):
     reasoning: str = Field(description="Your reasoning for this choice")
     action: Literal['bid', 'invest'] = Field(description="Your action for this round. You can either submit bids for jobs ('bid') or invest in a skill ('invest')")
     jobs: List[Tuple[str, float]] = Field(
@@ -59,8 +59,6 @@ class AgentBase(ABC):
             for task in tasks
         }
         
-        self.reputation = {task.id: 1 for task in tasks}
-        
         # self.runners = {
         #     task.id: TaskRunner(self.subagents[task.id], task)
         #     for task in tasks
@@ -72,7 +70,7 @@ class AgentBase(ABC):
         
     @property
     def skills(self) -> List[float]:
-        return {task_id: subagent.skill_level for task_id, subagent in self.subagents.items()}
+        return {task_id: subagent._skill_level for task_id, subagent in self.subagents.items()}
 
     @abstractmethod
     def get_agent_action(self, market_info: MarketInfo)  -> Tuple[Literal['bid', 'invest'], List[Tuple[str, float]]]:
@@ -83,6 +81,8 @@ class AgentBase(ABC):
         self.total_reward += market_response.adjusted_reward
         
         allocated_task_id = market_response.allocated
+        
+        self.skill_history.append(self.skills)
         
         # self.runners[allocated_task_id].perform_task()
         
@@ -157,8 +157,6 @@ class MockAgent(AgentBase):
 
 # # %%
 
-
-
 # System prompt
 SYSTEM_BASE = """You are {agent_id}, a strategic decision-making agent competing in a dynamic AI labor market. Your main goal is to accumulate as much reward as you can over 100 rounds. 
 
@@ -200,7 +198,7 @@ class LLMAgent(AgentBase):
     ):
         super().__init__(agent_id=agent_id, task_ids=task_ids)
         self.model = model or init_azure_model()
-        self.parser = JsonOutputParser(pydantic_object=TaskActionReply)
+        self.parser = JsonOutputParser(pydantic_object=TaskActionResponse)
 
 
         self.system_prompt = SYSTEM_BASE.format(
@@ -212,7 +210,7 @@ class LLMAgent(AgentBase):
 
         self.verbose = verbose
 
-        self.trace: List[TaskActionReply] = []
+        self.trace: List[TaskActionResponse] = []
         
         self.token_usage = []
         
@@ -237,7 +235,7 @@ class LLMAgent(AgentBase):
             [SystemMessage(self.system_prompt), HumanMessage(round_message)]
         )
 
-        task_order_reply = TaskActionReply.model_validate(
+        task_order_reply = TaskActionResponse.model_validate(
             self.parser.parse(response.content)
         )
 

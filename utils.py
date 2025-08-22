@@ -2,7 +2,7 @@ from langchain_openai import ChatOpenAI, AzureChatOpenAI
 import yaml
 
 def init_openrouter_chat_model(
-    model_name: str, temperature: float, api_key: str, **kwargs
+    model_name: str, temperature: float, api_key: str = None, **kwargs
 ):
     """
     Initializes a chat model from OpenAI or OpenRouter.
@@ -18,12 +18,22 @@ def init_openrouter_chat_model(
     Returns:
         An instance of ChatOpenAI configured for the specified provider.
     """
+    
+    if not api_key: 
+        lab_endpoints = yaml.safe_load(open('secrets.yaml'))
+        api_key = lab_endpoints['openrouter']["API_KEY"]
+        
+    model_kwargs = {
+        "reasoning": {"max_tokens": 1000},
+        # "output_version" is not a standard or OpenRouter parameter and should be removed.
+    }
 
     return ChatOpenAI(
-        model_name=model_name,  # e.g., "anthropic/claude-3-opus-20240229"
+        model_name=model_name,
         temperature=temperature,
         openai_api_base="https://openrouter.ai/api/v1",
         openai_api_key=api_key,
+        extra_body=model_kwargs,
         **kwargs,
     )
 
@@ -57,5 +67,5 @@ def init_azure_model(
             api_key=api_key)
 
 def format_dict_str(_dict):
-    
+    # print(_dict)
     return "[" + ", ".join(f"{k}: {_dict[k]}" for k in sorted(_dict)) + "]"
