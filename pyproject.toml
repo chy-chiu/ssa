@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ssa"
+version = "0.0.1"
+authors = [
+  { name="Christopher Chiu", email="chy.chiu@gmail.com"},
+]
+description = ""
+readme = "README.md"
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+license = "MIT"
+license-files = ["LICEN[CS]E*"]
+
+[tool.setuptools]
+packages = ["ssa"]
+
+[tool.black]
+line-length = 120
+
+[project.urls]
+Homepage = "https://github.com/chy-chiu/vivabench"
+Issues = "https://github.com/chy-chiu/vivabench/issues"
+
+[project.scripts]
+vivabench = "vivabench.cli:main"
