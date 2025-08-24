@@ -5,7 +5,7 @@ import random
 import string
 from typing import List, Any, Tuple
 
-from utils import init_openrouter_chat_model, init_azure_model
+from ssa.utils import init_openrouter_chat_model, init_azure_model
 from langchain.schema import AIMessage, HumanMessage, SystemMessage
 
 from langchain.schema import SystemMessage, HumanMessage

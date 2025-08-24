@@ -5,8 +5,8 @@ import pandas as pd
 from pydantic import BaseModel
 from task import TaskRunner, TaskBase, ProxyAgent, ProxyTask
 from copy import deepcopy
-from agent import (
-    MarketResponse,
+from ssa.agent import (
+    MarketHistory,
     AgentBase,
     MarketInfo,
     MockAgent,
@@ -16,8 +16,10 @@ from agent import (
 from loguru import logger
 import asyncio
 
-from utils import format_dict_str
+from ssa.utils import format_dict_str
 from plotting import plot_agent_trace, plot_allocation
+
+from ssa.tasks.cipher import CipherTask
 
 import nest_asyncio
 
@@ -427,7 +429,7 @@ class LabourMarket:
 
             agent_invest_preference = [[task_id for task_id, _ in agent_bid] for _, agent_bid in agent_action_bids]
 
-            market_response = MarketResponse(
+            market_response = MarketHistory(
                 round=self.round_counter,
                 allocated=task_id,
                 preference=agent_invest_preference[agent_idx],
@@ -453,7 +455,7 @@ class LabourMarket:
             elif agent_action == "bid" and (np.random.uniform(0, 1) <= self.p):
                 agent_task_runner.upgrade_skill()
 
-            market_response = MarketResponse(round=self.round_counter, preference=agent_invest_preference[agent_idx])
+            market_response = MarketHistory(round=self.round_counter, preference=agent_invest_preference[agent_idx])
             self.agents[agent_idx].receive_response(market_response)
 
             agent_reward_dict[self.agents[agent_idx].id] = 0
@@ -519,6 +521,38 @@ class ImproveAgent(AgentBase):
         return action, [(p, 10) for p in self.preferences]
 
     
+
+# %% 
+task_ids = ["task_a"]
+# task_ids = ["task_a"]
+tasks = [CipherTask(t) for t in task_ids]
+for task in tasks:
+    task.generate_ground_truth()
+    task.__setattr__('base_reward', 10)
+# agents = 
+agents = []
+
+from ssa.utils import init_azure_model
+from tqdm import trange
+
+model = init_azure_model()
+
+agent_test = ImproveAgent(agent_id="agent_0_improve", tasks=tasks, model=model)
+# agent_test.preferences =  ["task_a", "task_b"]
+agents.append(agent_test)
+
+agents.extend(
+    [MockAgent(agent_id=f"agent_{i}_random", tasks=tasks, model=model) for i in range(1, 2)]
+)
+
+market = LabourMarket(tasks, agents, t=0.1)
+for _ in trange(100):
+    market.simulate_timestep()
+    
+# %%
+import matplotlib.pyplot as plt 
+
+plt.plot(market.agent_reward_history.T)
     
 # %%    
 all_reputation = []
@@ -596,3 +630,9 @@ print(market.get_history_string())
 # %%
 def plot_agent_reputation(ax, market: LabourMarket):
     pass
+
+
+# %% 
+
+print(agent.generate_agent_history_string())
+# %%

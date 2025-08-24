@@ -9,7 +9,7 @@ from langchain_core.prompts import (
     ChatPromptTemplate,
 )
 import numpy as np
-from utils import init_azure_model
+from ssa.utils import init_azure_model
 from typing import List, Dict, Optional, Literal, Tuple
 from langchain.schema import AIMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
@@ -17,11 +17,14 @@ import matplotlib.pyplot as plt
 from loguru import logger
 from task import TaskBase, TaskSubAgent, TaskRunner, ProxyAgent
 
+from ssa.tasks.cipher import CipherAgent
 
-class MarketResponse(BaseModel):
+
+class MarketHistory(BaseModel):
     """API dataclass for market to return info to each agent per round"""
 
     round: int
+    # action: Literal["bid", "invest"]
     allocated: Optional[str] = None
     preference: List[str]
     task_id: Optional[str] = None
@@ -43,7 +46,7 @@ class TaskActionResponse(BaseModel):
     )
     
     def format(self):
-        return f"ACTION: {self.action}\nREASONING: {self.reasoning}\nTASK ORDER: {self.jobs}"
+        return f"ACTION: {self.action}\nREASONING: {self.reasoning}\nTASK BIDS: {self.jobs}"
 
 class AgentBase(ABC):
     """Abstract class for all agents"""
@@ -55,7 +58,7 @@ class AgentBase(ABC):
         
         # TODO: Add subagent types here
         self.subagents = {
-            task.id: ProxyAgent(model=model, task_id=task.id)
+            task.id: CipherAgent(model=model, task_id=task.id)
             for task in tasks
         }
         
@@ -65,18 +68,18 @@ class AgentBase(ABC):
         # }
         
         self.skill_history = [self.skills]
-        self.market_history: List[MarketResponse] = []
+        self.market_history: List[MarketHistory] = []
         self.total_reward = 0
         
     @property
     def skills(self) -> List[float]:
-        return {task_id: subagent._skill_level for task_id, subagent in self.subagents.items()}
+        return {task_id: subagent.skill_level for task_id, subagent in self.subagents.items()}
 
     @abstractmethod
     def get_agent_action(self, market_info: MarketInfo)  -> Tuple[Literal['bid', 'invest'], List[Tuple[str, float]]]:
         pass
 
-    def receive_response(self, market_response: MarketResponse):
+    def receive_response(self, market_response: MarketHistory):
         self.market_history.append(market_response)
         self.total_reward += market_response.adjusted_reward
         
@@ -95,7 +98,7 @@ class AgentBase(ABC):
     
     @property
     def reward_history(self):
-        return np.array([round(hx.adjusted_reward) for hx in self.market_history])
+        return np.array([round(hx.adjusted_reward, 4) for hx in self.market_history])
     
     @property
     def allocation_history(self):

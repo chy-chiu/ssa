@@ -200,111 +200,120 @@ Reply in JSON output format only and nothing else. Format as below:
         return "\n".join(mappings)
 
 
-# # Example usage
-# if __name__ == "__main__":
-#     task = CryptogramTask(task_id=1)
-#     task.generate_ground_truth(seed=42)
+# Example usage
+if __name__ == "__main__":
+    task = CipherTask(task_id=1)
+    task.generate_ground_truth(seed=42)
 
-#     print("Ground Truth Cipher Mapping (first 10):")
-#     for i, (plain, cipher) in enumerate(task.cipher_mapping.items()):
-#         if i < 10:
-#             print(f"  {cipher} → {plain}")
+    print("Ground Truth Cipher Mapping (first 10):")
+    for i, (plain, cipher) in enumerate(task.cipher_mapping.items()):
+        if i < 10:
+            print(f"  {cipher} → {plain}")
 
-#     # Generate a question
-#     q = task.generate_question()
-#     print(f"\nQuestion: {q.question_text}")
-#     print(f"Correct Answer: {q.correct_answer}")
+    # Generate a question
+    q = task.generate_question()
+    print(f"\nQuestion: {q.question_text}")
+    print(f"Correct Answer: {q.correct_answer}")
 
-#     # Simulate agent response and feedback
-#     agent_response = "['PVAUS', 'IECDE', 'ABABA', 'NZJVV', 'ASDD']"  # Random guess
-#     score = task.score_response(q, agent_response)
-#     feedback = task.extract_feedback_info(q, agent_response)
+    # Simulate agent response and feedback
+    agent_response = CipherResponse(reasoning="", answer=['PVAUS', 'IECDE', 'ABABA', 'NZJVV', 'ASDD'])  # Random guess
+    score = task.score_response(q, agent_response)
+    feedback = task.extract_feedback_info(q, agent_response)
 
-#     print(f"Agent Response: {agent_response}")
-#     print(f"Score: {score:.2f}")
-#     print(f"Feedback: {feedback[1]} → {feedback[0]}")
+    print(f"Agent Response: {agent_response}")
+    print(f"Score: {score:.2f}")
+    print(f"Feedback: {feedback[1]} → {feedback[0]}")
 
-# %%
-from utils import init_azure_model, init_openrouter_chat_model
+# # %%
+# from utils import init_azure_model, init_openrouter_chat_model
 
-model = init_azure_model(temperature=0.1)
-# model = init_openrouter_chat_model(model_name="google/gemini-2.5-flash", temperature=0.5)
+# model = init_azure_model(temperature=0.1)
+# # model = init_openrouter_chat_model(model_name="google/gemini-2.5-flash", temperature=0.5)
 
-task = CipherTask(task_id=1)
-task.generate_ground_truth(seed=42)
+# task = CipherTask(task_id=1)
+# task.generate_ground_truth(seed=42)
 
-agent = CipherAgent(model)
+# agent = CipherAgent(model)
 
-# skill_level = []
-# for _ in range(50):
-#     agent.update_knowledge_base(task.get_random_feedback())
+# # skill_level = []
+# # for _ in range(50):
+# #     agent.update_knowledge_base(task.get_random_feedback())
     
-#     skill_level.append(agent.skill_level)
 
-# %%
-task = CipherTask(task_id=1)
-task.generate_ground_truth(seed=42)
+# #     skill_level.append(agent.skill_level)
 
-all_scores = {}
+# # %%
+# task.generate_ground_truth(1)
+# task.cipher_mapping
 
-from tqdm import trange
+# # %%
+# task.generate_ground_truth()
 
-# check over different ranges of i:
-for i in [5, 10, 15, 20, 50, 500]:
-    round_scores = []
 
-    agent = CipherAgent(model)
+# # %%
+# task = CipherTask(task_id=1)
+# task.generate_ground_truth(seed=42)
 
-    for _ in range(i):
-        agent.update_knowledge_base(task.get_random_feedback())
+# all_scores = {}
 
-    agent_knowledge_level = len(agent.knowledge_base)
+# from tqdm import trange
 
-    for _ in trange(10):
+# # check over different ranges of i:
+# for i in [5, 50]:
+#     round_scores = []
+
+#     agent = CipherAgent(model)
+
+#     for _ in range(i):
+#         agent.update_knowledge_base(task.get_random_feedback())
+
+#     agent_knowledge_level = len(agent.knowledge_base)
+
+#     for _ in trange(10):
         
-        question = task.generate_question(batch_size=3)
-        agent_response = agent.probe_task(question)
-        round_scores.append(task.score_response(question, agent_response))
+#         question = task.generate_question(batch_size=3)
+#         agent_response = agent.probe_task(question)
+#         round_scores.append(task.score_response(question, agent_response))
     
-    all_scores[agent_knowledge_level] = round_scores
+#     all_scores[agent_knowledge_level] = round_scores
 
-print(question.question_data, agent_response.answer, question.correct_answer)
-# %%
-import matplotlib.pyplot as plt
-import numpy as np
+# print(question.question_data, agent_response.answer, question.correct_answer)
+# # %%
+# import matplotlib.pyplot as plt
+# import numpy as np
 
-all_scores = {1: [0.0, 0.2, 0.0, 0.0, 0.0, 0.2, 0.0, 0.0, 0.2, 0.0],
- 4: [0.0, 0.0, 0.0, 0.4, 0.0, 0.0, 0.2, 0.2, 0.4, 0.0],
- 10: [0.0, 0.0, 0.6, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.6],
- 11: [0.2, 0.2, 0.6, 0.0, 0.6, 0.4, 0.0, 0.0, 0.2, 0.0],
- 13: [0.0, 0.0, 0.4, 0.6, 0.2, 0.6, 0.6, 0.8, 0.4, 0.6],
- 24: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.8, 1.0, 1.0],
- 26: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]}
-# %%
+# # all_scores = {1: [0.0, 0.2, 0.0, 0.0, 0.0, 0.2, 0.0, 0.0, 0.2, 0.0],
+# #  4: [0.0, 0.0, 0.0, 0.4, 0.0, 0.0, 0.2, 0.2, 0.4, 0.0],
+# #  10: [0.0, 0.0, 0.6, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.6],
+# #  11: [0.2, 0.2, 0.6, 0.0, 0.6, 0.4, 0.0, 0.0, 0.2, 0.0],
+# #  13: [0.0, 0.0, 0.4, 0.6, 0.2, 0.6, 0.6, 0.8, 0.4, 0.6],
+# #  24: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.8, 1.0, 1.0],
+# #  26: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]}
+# # %%
+# import numpy as np
+# X = all_scores.keys()
+# scores = np.array(list(all_scores.values()))
 
-X = all_scores.keys()
-scores = np.array(list(all_scores.values()))
+# plt.plot(X, np.mean(scores, axis=1), label=f"S={+1}")
+# plt.fill_between(
+#     X, 
+#     np.mean(scores, axis=1) - np.std(scores, axis=1),
+#     np.mean(scores, axis=1) + np.std(scores, axis=1),
+#     alpha=0.3,
+# )
+# # %%
+# agent = CipherAgent(model)
 
-plt.plot(X, np.mean(scores, axis=1), label=f"S={i+1}")
-plt.fill_between(
-    X, 
-    np.mean(scores, axis=1) - np.std(scores, axis=1),
-    np.mean(scores, axis=1) + np.std(scores, axis=1),
-    alpha=0.3,
-)
-# %%
-agent = CipherAgent(model)
+# task = CipherTask(task_id=1)
+# task.generate_ground_truth(seed=42)
 
-task = CipherTask(task_id=1)
-task.generate_ground_truth(seed=42)
-
-runner = TaskRunner(agent=agent, task=task)
-# %%
-from tqdm import trange
-scores = [] 
-for _ in trange(50):
-    scores.append(runner.perform_task())
-# %%
-import matplotlib.pyplot as plt
-plt.plot(scores)
-# %%
+# runner = TaskRunner(agent=agent, task=task)
+# # %%
+# from tqdm import trange
+# scores = [] 
+# for _ in trange(50):
+#     scores.append(runner.perform_task())
+# # %%
+# import matplotlib.pyplot as plt
+# plt.plot(scores)
+# # %%

@@ -35,6 +35,10 @@ class TaskBase(ABC):
     def extract_feedback_info(self, question: Question, agent_response: Any) -> Any:
         """Extract information needed for agent feedback"""
         pass
+    
+    def get_random_feedback(self):
+        
+        pass
 
 class TaskSubAgent(ABC):
     """Subagent class to handle specific tasks"""
@@ -85,10 +89,15 @@ class TaskRunner:
         
         return agent_performance
 
-    def upgrade_skill(self): 
+    def upgrade_skill(self, question=None, agent_response=None): 
         """Statically upgrade a task for the agent I guess LOL"""
         
-        feedback = self.task.extract_feedback_info(None, None)
+        if agent_response:
+            
+            feedback = self.task.extract_feedback_info(question, agent_response)
+        else:
+            feedback = self.task.get_random_feedback()
+            
         self.agent.update_knowledge_base(feedback)
     
         
@@ -113,6 +122,8 @@ class ProxyTask(TaskBase):
         # logger.debug(f"task_id: {self.id}, id: {self.debug_int}")
         self.debug_int += 1
         return None
+    
+        
     
 class ProxyAgent(TaskSubAgent):
     """Proxy agent that has a skill √alue that grows with repeated tasks"""
