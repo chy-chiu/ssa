@@ -20,7 +20,7 @@ def init_openrouter_chat_model(
     """
     
     if not api_key: 
-        lab_endpoints = yaml.safe_load(open('secrets.yaml'))
+        lab_endpoints = yaml.safe_load(open('assets/secrets.yaml'))
         api_key = lab_endpoints['openrouter']["API_KEY"]
         
     model_kwargs = {
@@ -38,7 +38,7 @@ def init_openrouter_chat_model(
     )
 
 def init_azure_model(
-    model_name: str="gpt-4o-sh-1", temperature: float=0.5, api_key: str="", **kwargs
+    model_name: str="gpt-4o-sh-1", temperature: float=0.5, api_key: str="", secrets_path: str = None, **kwargs
 ):
     """
     Initializes a chat model from OpenAI or OpenRouter.
@@ -54,8 +54,8 @@ def init_azure_model(
     Returns:
         An instance of ChatOpenAI configured for the specified provider.
     """
-
-    lab_endpoints = yaml.safe_load(open('secrets.yaml'))
+    secrets_path = secrets_path or 'assets/secrets.yaml'
+    lab_endpoints = yaml.safe_load(open(secrets_path))
     config = lab_endpoints[model_name]
     endpoint = config["API_ENDPOINT"]
     api_key = config["API_KEY"]

@@ -10,43 +10,54 @@ from langchain_core.prompts import (
 )
 import numpy as np
 from ssa.utils import init_azure_model
-from typing import List, Dict, Optional, Literal, Tuple
+from typing import List, Dict, Optional, Literal, Tuple, Any
 from langchain.schema import AIMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 import matplotlib.pyplot as plt
 from loguru import logger
-from task import TaskBase, TaskSubAgent, TaskRunner, ProxyAgent
+from ssa.task import TaskBase, TaskSubAgent, TaskRunner, ProxyAgent
 
 from ssa.tasks.cipher import CipherAgent
 
 
-class MarketHistory(BaseModel):
-    """API dataclass for market to return info to each agent per round"""
-
-    round: int
-    # action: Literal["bid", "invest"]
-    allocated: Optional[str] = None
-    preference: List[str]
-    task_id: Optional[str] = None
-    base_reward: float = 0
-    adjusted_reward: float = 0
-
 class MarketInfo(BaseModel):
     """Data class for market to provide info for agent to action on decisions each round"""
-
+    
+    round: int
     history: str
-    task_reward: Dict[str, float] # task_id, budget
+    listings: Dict[str, float] # task_id, budget
+    info: Dict[str, Any] = {}
 
 
 class TaskActionResponse(BaseModel):
-    reasoning: str = Field(description="Your reasoning for this choice")
-    action: Literal['bid', 'invest'] = Field(description="Your action for this round. You can either submit bids for jobs ('bid') or invest in a skill ('invest')")
-    jobs: List[Tuple[str, float]] = Field(
-        description="The list of jobs you want to work on or invest in, from the highest to lowest priority. Return a list of tuples in format (job_id, budget). Put budget as -1 if you are investing in a skill."
+    """Data class for agent response"""
+    
+    reasoning: str = Field(description="Your strategic reasoning for this choice")
+    action: Literal['compete', 'train'] = Field(description="Your action for this round. You can either compete for jobs ('compete') or train skills ('train')")
+    targets: List[Tuple] = Field(
+        description="Your task preferences from highest to lowest priority. For competing: [(task_id_1, price_1), (task_id_2, price_2), ...]. For training: [(task_id, -1)] with only one task."
     )
     
     def format(self):
-        return f"ACTION: {self.action}\nREASONING: {self.reasoning}\nTASK BIDS: {self.jobs}"
+        if self.action == 'compete':
+            target_str = f"Job applications: {self.targets}"
+        else:
+            task_id = self.targets[0][0] if self.targets else "None"
+            target_str = f"Training focus: {task_id}"
+            
+        return f"\nREASONING: {self.reasoning}\nACTION: {self.action.upper()}\n{target_str}"
+    
+class AgentHistory(BaseModel):
+    """API dataclass for market to return info to each agent per round"""
+    
+    round: int
+    allocated: Optional[str] = None
+    agent_action: TaskActionResponse
+    listings: Dict[str, float]
+    agent_bid_price: Optional[float] = -1
+    adjusted_reward: Optional[float] = -1
+    agent_performance: Optional[float] = -1
+    reputation: Optional[float] = -1
 
 class AgentBase(ABC):
     """Abstract class for all agents"""
@@ -62,13 +73,10 @@ class AgentBase(ABC):
             for task in tasks
         }
         
-        # self.runners = {
-        #     task.id: TaskRunner(self.subagents[task.id], task)
-        #     for task in tasks
-        # }
-        
         self.skill_history = [self.skills]
-        self.market_history: List[MarketHistory] = []
+        self.agent_history: List[AgentHistory] = []
+        self.market_history: List[MarketInfo] = []
+        self.reputation: Dict[str, Tuple[int, float, float]] = {task_id: (0, 0.5, 0.0) for task_id in self.task_ids} # round, reputation float, delta from previous round
         self.total_reward = 0
         
     @property
@@ -76,18 +84,23 @@ class AgentBase(ABC):
         return {task_id: subagent.skill_level for task_id, subagent in self.subagents.items()}
 
     @abstractmethod
-    def get_agent_action(self, market_info: MarketInfo)  -> Tuple[Literal['bid', 'invest'], List[Tuple[str, float]]]:
+    def get_agent_action(self, market_info: MarketInfo)  -> TaskActionResponse:
         pass
 
-    def receive_response(self, market_response: MarketHistory):
-        self.market_history.append(market_response)
-        self.total_reward += market_response.adjusted_reward
+    def receive_response(self, agent_history: AgentHistory):
+        self.agent_history.append(agent_history)
+        self.total_reward += agent_history.adjusted_reward or 0
         
-        allocated_task_id = market_response.allocated
+        allocated_task_id = agent_history.allocated
         
         self.skill_history.append(self.skills)
         
-        # self.runners[allocated_task_id].perform_task()
+        new_reputation = agent_history.reputation
+        
+        if allocated_task_id and (new_reputation > 0):
+            _, old_reputation, _ = self.reputation[allocated_task_id]
+            reputation_delta = new_reputation - old_reputation
+            self.reputation[allocated_task_id] = (agent_history.round, new_reputation, reputation_delta)
         
     def get_skill_history(self, task_id: str):
         return np.array([round(hx[task_id], 3) for hx in self.skill_history])
@@ -98,25 +111,48 @@ class AgentBase(ABC):
     
     @property
     def reward_history(self):
-        return np.array([round(hx.adjusted_reward, 4) for hx in self.market_history])
+        return np.array([round(hx.agent_performance, 4) for hx in self.agent_history])
     
     @property
     def allocation_history(self):
-        return np.array([round(hx.allocated) for hx in self.market_history])
-    
+            return np.array([round(hx.allocated) for hx in self.agent_history])
+        
     def generate_agent_history_string(self, n_steps=10):
+        history_lines = []
+        
+        for round_info in self.agent_history[-n_steps:]:
+            action = round_info.agent_action
+            round_num = round_info.round
+            
+            if action.action == "compete":
+                if round_info.adjusted_reward >= 0:
+                    # Won a job
+                    task = round_info.allocated
+                    _, new_rep, rep_delta = self.reputation[task]
+                    performance = round_info.agent_performance * 10
+                    reward = round_info.adjusted_reward
+                    
+                    history_lines.append(
+                        f"R{round_num}: COMPETE {action.targets} → WON {task} "
+                        f"(perf: {performance:.1f}/10, reward: ${reward:.2f}, rep: {new_rep - rep_delta:.2f}→{new_rep:.2f})"
+                    )
+                else:
+                    # Lost all bids
+                    history_lines.append(f"R{round_num}: COMPETE {action.targets} → NO WINS")
+                    
+            elif action.action == "train":
+                task = round_info.allocated
+                history_lines.append(f"R{round_num}: TRAIN → {task}")
+        
+        # Add current reputation summary
+        rep_summary = "Reputation (last known round) - " + " | ".join([
+            f"{task}: {rep[1]:.2f} (R{rep[0]})" for task, rep in self.reputation.items()
+        ])
+        
+        return "\n".join(history_lines) + f"\n{rep_summary}"
 
-        if self.market_history:
-
-            agent_history_string = ""
-
-            for round_info in self.market_history[-n_steps:]:
-                agent_history_string += f"Round {round_info.round} - Preference: {round_info.preference} | Allocated: {round_info.allocated} | Reward: {round_info.adjusted_reward:.3f}\n"
-
-            return agent_history_string
-        else:
-            return ""
-
+        
+        
 
 def plot_agent_history(agent: AgentBase):
     plt.figure()
@@ -143,8 +179,12 @@ class MockAgent(AgentBase):
             self.preferences = [
                 self.task_ids[i] for i in np.random.permutation(self.n_tasks)
             ]
+            
+        response = TaskActionResponse(reasoning="",
+                                      action="compete",
+                                      targets=[(p, 10) for p in self.preferences])
         
-        return 'bid', [(p, 10) for p in self.preferences]
+        return response
 
 
 # agent = MockAgent(agent_id="1", task_ids=['a', 'b', 'c'])
@@ -161,53 +201,68 @@ class MockAgent(AgentBase):
 # # %%
 
 # System prompt
-SYSTEM_BASE = """You are {agent_id}, a strategic decision-making agent competing in a dynamic AI labor market. Your main goal is to accumulate as much reward as you can over 100 rounds. 
 
-MARKET RULES:
-- {num_tasks} tasks are available in the market: {task_list}
-- Each task requires a different skillset. However, you don't know your skill level in each of these tasks. You can expect to get better at a task with repeated attempts at a task through client feedback and practice
-- At each round, the tasks will be listed with an expected budget by the client. You will be competing against other agents to bid for a job by suggesting a price of your own
-- You can also choose to invest in a skill without bidding for a job. You will won't get any income for that round
-- If you fail to bid for a job, your will Invest skills in your top preferred job
-- Each agent has a Reputation value for each task. However, you only know your own reputation in full
-- The client's decision for who gets the task is based on a mix of reputation and price
-- Your reputation and income for a job would depend on your perfomrance on the job
+# - Current reputation values for all agents (but not their skills or internal strategies)
+
+SYSTEM_BASE = """You are {agent_id}, a strategic agent competing in an AI labor market simulation over 100 rounds to maximize total reward.
+
+MARKET STRUCTURE:
+- {num_tasks} available tasks: {task_list}
+- Each round, clients will list tasks with an expected budget as reference. You propose your price to perform these tasks to clients (Can be higher or lower than reference)
+- Each task requires different skills; you have hidden skill levels that improve over time
+- Your PERFORMANCE on a task is based on your skill level plus randomness
+- Your REWARD = performance_ratio * your_offered_price
+
+ACTIONS (choose one per round):
+- COMPETE: Submit job applications with your proposed prices
+- TRAIN: Skip earning to improve skills in a chosen task
+
+GAME MECHANICS:
+- Clients select agents using unknown criteria (likely considering both price and reputation)
+- REPUTATION per task reflects your recent performance relative to other agents
+- You gain small skill improvements from completing jobs, large improvements from training
+- If you fail to win any job you bid for, you automatically train in your top-choice task
 
 AVAILABLE INFORMATION:
-- Historical allocation data showing which agent won which task in previous rounds
-- Performance feedback: Task outcomes and rewards earned by each agent
+- Market history: job listings, allocations, and agent reputations from recent rounds
+- Your action history with performance and reputation outcomes
 
-OUTPUT: Provide your action you plan to take ('bid' or 'invest'), your reasoning, and provide a list of tasks you are interested in bidding for or investing in. from most preferred (highest probability of winning and/or highest strategic value) to least preferred.
-
+OUTPUT FORMAT:
+1. REASONING: Your reasoning for this action
+2. ACTION: 'compete' or 'train'
+3. TARGETS: If competing, list [(task_id, price), ...] in preference order. If training, specify task_id.
 {format_instructions}
 """
-ROUND_BASE = """This is the current available history from the last 10 rounds:
+
+ROUND_BASE = """=== ROUND {current_round} ===
+
+RECENT MARKET ACTIVITY (Last {history_window} rounds):
 {market_history}
 
-This was your last actions and reward gained: 
+YOUR RECENT PERFORMANCE:
 {agent_history}
 
-The following are this round's budget for each task: {task_reward}
+THIS ROUND'S LISTINGS (task: client_budget): {listings}
 """
 
-INSTRUCTION = "\nPlease bid for tasks to perform / invest on as per instruction"
+INSTRUCTION = "\nChoose to either compete for jobs or train skills based on your strategic analysis."
 
 
 class LLMAgent(AgentBase):
     """A LLM-based agent to interact with an environment. Has a latent skill vector that is not exposed to the model during LLM calls"""
 
     def __init__(
-        self, agent_id: int, task_ids: List[str], model: ChatOpenAI = None, verbose=True
+        self, agent_id: int, tasks: List[TaskBase], model: ChatOpenAI = None, verbose=True
     ):
-        super().__init__(agent_id=agent_id, task_ids=task_ids)
+        super().__init__(agent_id=agent_id, model=model, tasks=tasks, verbose=verbose)
         self.model = model or init_azure_model()
         self.parser = JsonOutputParser(pydantic_object=TaskActionResponse)
 
 
         self.system_prompt = SYSTEM_BASE.format(
             agent_id=self.id,
-            num_tasks=len(task_ids),
-            task_list=task_ids,
+            num_tasks=len(tasks),
+            task_list=self.task_ids,
             format_instructions=self.parser.get_format_instructions(),
         )
 
@@ -222,27 +277,35 @@ class LLMAgent(AgentBase):
     def construct_llm_message(self, market_info: MarketInfo):
 
         return ROUND_BASE.format(
+            current_round=market_info.round,
+            history_window=10,
             market_history=market_info.history,
             agent_history=self.generate_agent_history_string(),
-            task_reward=market_info.task_reward,
-        ) + INSTRUCTION
+            listings=market_info.listings,
+        ) # + INSTRUCTION
 
     def rank_skills(self):
         pass
 
-    def get_agent_action(self, market_info: MarketInfo) -> Tuple[Literal['bid', 'invest'], List[Tuple[str, float]]]:
-
+    def get_agent_action(self, market_info: MarketInfo) -> TaskActionResponse:
+        
+        self.market_history.append(market_info)
+        
         round_message = self.construct_llm_message(market_info)
-
+        
         response = self.model.invoke(
             [SystemMessage(self.system_prompt), HumanMessage(round_message)]
         )
+        
+        if self.verbose: logger.debug(round_message)
 
+        # print(response.content)
         task_order_reply = TaskActionResponse.model_validate(
             self.parser.parse(response.content)
         )
+        # print("task reply", task_order_reply)
 
-        self.trace.append(task_order_reply)
+        self.trace.append((round_message, task_order_reply))
         
         self.token_usage.append(response.response_metadata['token_usage'])
 
@@ -251,11 +314,34 @@ class LLMAgent(AgentBase):
             
         self.round += 1
 
-        return task_order_reply.action, task_order_reply.jobs
+        return task_order_reply
 
-    @property
-    def total_tokens(self):
-        return np.sum([t['total_tokens'] for t in self.token_usage])
+    def get_token_usage(self):
+        self_token_usage = dict(total_tokens=sum([t['total_tokens'] for t in self.token_usage]),
+        completion_tokens=sum([t['completion_tokens'] for t in self.token_usage]),
+        prompt_tokens=sum([t['prompt_tokens'] for t in self.token_usage]),)
+        
+        subagent_token_usage = {} 
+        for task_id, subagent in self.subagents.items():
+            subagent_token_usage[task_id] = subagent.get_token_usage()
+
+        # Sum all subagent usage
+        total_subagent = {}
+        for key in ['total_tokens', 'completion_tokens', 'prompt_tokens']:
+            total_subagent[key] = sum([usage[key] for usage in subagent_token_usage.values()], 0)
+        
+        total_token_usage = {
+            'total_tokens': self_token_usage['total_tokens'] + total_subagent['total_tokens'],
+            'completion_tokens': self_token_usage['completion_tokens'] + total_subagent['completion_tokens'],
+            'prompt_tokens': self_token_usage['prompt_tokens'] + total_subagent['prompt_tokens']
+        }
+        
+        return dict(
+            total_token_usage=total_token_usage, 
+            agent_token_suage=self_token_usage, 
+            subagent_token_usage=subagent_token_usage
+        )
+
 
 class OracleAgent(LLMAgent):
     
@@ -266,8 +352,9 @@ class OracleAgent(LLMAgent):
         return ROUND_BASE.format(
             market_history=market_info.history,
             agent_history=self.generate_agent_history_string(),
-            task_reward=market_info.task_reward,
+            task_reward=market_info.listings,
         ) + SKILL_PROMPT + INSTRUCTION
+
 
 
 # # %%
@@ -353,3 +440,5 @@ class OracleAgent(LLMAgent):
 # print(parser.get_format_instructions())
 
 # # %%
+
+# %%

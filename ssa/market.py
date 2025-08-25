@@ -3,10 +3,11 @@ import numpy as np
 from typing import List, Dict, Optional, Tuple, Set, Any
 import pandas as pd
 from pydantic import BaseModel
-from task import TaskRunner, TaskBase, ProxyAgent, ProxyTask
+from ssa.task import TaskRunner, TaskBase, ProxyAgent, ProxyTask
 from copy import deepcopy
 from ssa.agent import (
-    MarketHistory,
+    AgentHistory,
+    TaskActionResponse,
     AgentBase,
     MarketInfo,
     MockAgent,
@@ -28,37 +29,44 @@ nest_asyncio.apply()
 
 EWMA_SPAN = 10
 REPUTATION_SENSITIVITY = 0.2
-INITIAL_REPUTATION = 1
+INITIAL_REPUTATION = 0.5
 GUMBEL_NOISE = 0.2
-SKILL_P = 0.5
+SKILL_P = 0.2
 
 class RoundData(BaseModel):
     """Info retained for each round"""
 
     round: int
 
-    # List of jobs, with their base price, and agent's bid for those jobs
-    base_reward: Any
-    agent_bids: Any
+    # List of jobs, with their base price, agent's bid for those jobs, and price of the winning agent
+    agent_bids: List[TaskActionResponse]
+    base_rewards: Dict[str, float]
+    task_rewards: Dict[str, float]
 
     # Agent reputation at the end of round
-    agent_reputation: Any
+    agent_reputation: Dict[str, List[float]] # n_tasks: n_agents
 
-    # Outcome of each agent's scores (which is a combination )
-    agent_scores: Any
-    market_preference: Any
+    # Outcome of each agent's scores (which is a combination)
+    agent_scores: Dict[str, Dict[int, float]] # task_id: (agent_idx: agent_score)
+    market_preference:  Dict[str, List[int]] # ordered preferences
 
     # Outcome of stable matching
-    matched_task_agent: Any
-    unmatched_agents: Any
+    matched_task_agent: Dict[str, int] # {task_id: agent_idx}
+    unmatched_agents: List[int] # List of unmatched agent_idx
 
     # Task performance per task in (agent_idx, agent_performance)
-    task_performance: Any
-    agent_rewards: Any
-
+    task_performance: Dict[str, Tuple[int, float]] # task_id: (agent_idx, agent_performance)
+    agent_rewards: List[float] # n_agents
 
 class LabourMarket:
-    def __init__(self, tasks: List[TaskBase], agents: List[AgentBase], t=GUMBEL_NOISE, p=SKILL_P):
+    def __init__(
+        self,
+        tasks: List[TaskBase],
+        agents: List[AgentBase],
+        t=GUMBEL_NOISE,
+        p=SKILL_P,
+        initial_reputation=INITIAL_REPUTATION,
+    ):
 
         # Initialize tasks
         self.n_tasks = len(tasks)
@@ -70,7 +78,7 @@ class LabourMarket:
         self.n_agents = len(agents)
         self.agents = agents
         self.agent_ids = [agent.id for agent in agents]
-        
+
         self.t = t
         self.p = p
 
@@ -85,14 +93,15 @@ class LabourMarket:
         }
 
         # Initialize reputation by agent
-        self.agent_reputation = {task_id: [INITIAL_REPUTATION] * self.n_agents for task_id in self.task_ids}
+        self.agent_reputation = {task_id: [initial_reputation] * self.n_agents for task_id in self.task_ids}
 
-        # Collect one round of data across agents
-        self.collect_initial_data()
+        self.initialize()
 
-    def collect_initial_data(self):
+    def initialize(self):
+        """Initialize Task Runners, and collect one round of data across agents"""
 
         agent_performances = []
+        
         for agent_idx, _ in enumerate(self.agents):
             task_matches = {task_id: agent_idx for task_id in self.task_ids}
             task_agent_performance = asyncio.run(self.collect_agent_performance_async(task_matches, upgrade_skill_p=0))
@@ -102,13 +111,11 @@ class LabourMarket:
 
         for task_id in self.task_performance.keys():
 
-            # self.task_performance[task_id] = [1, 1, 1, 1, 1]
-
             self.task_performance[task_id].extend(
                 [agent_performance[task_id] for agent_performance in agent_performances]
             )
 
-    def update_reputation(self, agent_idx: int, task_id: str, agent_performance: float):
+    def update_reputation(self, agent_idx: int, task_id: str, agent_performance: float) -> float:
         """Updates agent reputation in accordance to agent performance"""
 
         # Float for now. TODO: Make it traceable according to agent...
@@ -135,8 +142,12 @@ class LabourMarket:
         # )
 
         agent_reputation = self.agent_reputation[task_id][agent_idx]
+        
+        new_reputation = np.clip(agent_reputation + reputation_gain, 0, 1)
 
-        self.agent_reputation[task_id][agent_idx] = np.clip(agent_reputation + reputation_gain, 0, 1)
+        self.agent_reputation[task_id][agent_idx] = new_reputation
+        
+        return new_reputation
 
     def calculate_agent_score(self, agent_idx, agent_bid, task_id):
         """Calculate"""
@@ -148,7 +159,7 @@ class LabourMarket:
 
         return agent_score
 
-    def generate_tasks(self) -> np.ndarray:
+    def generate_task_payments(self) -> Dict[str, float]:
         """Generate task payments. Placeholder for now"""
         return {task_id: 10 for task_id in self.tasks}
 
@@ -163,7 +174,7 @@ class LabourMarket:
         # Return indices sorted by perturbed skills (descending)
         return weighted_ranking, np.argsort(weighted_ranking)
 
-    def generate_market_preference(self, agent_pricing: List[Dict[str, float]]) -> List[np.ndarray]:
+    def generate_market_preference(self, agent_pricing: List[Dict[str, float]]) -> Tuple[Dict[str, List[int]]]:
         """
         Create preference rankings for all tasks based on agent skills
 
@@ -174,8 +185,8 @@ class LabourMarket:
             List of length n_tasks, each containing agent ranking for that task
         """
 
-        task_prefs = {}
-        task_agent_scores = {}
+        task_prefs: Dict[str, List[int]] = {}
+        task_agent_scores: Dict[str, Dict[int, float]] = {}
         for task_id in self.task_ids:
 
             agents_bidding = []
@@ -191,7 +202,6 @@ class LabourMarket:
 
                     agents_bidding.append(agent_idx)
                     agents_score.append(agent_score)
-                
 
             if agents_score:
                 weighted_ranking, task_ranking = self.randomise_ranking(np.array(agents_score), t=self.t)
@@ -205,7 +215,7 @@ class LabourMarket:
                 task_agent_scores[task_id] = task_agent_score
             else:
                 task_prefs[task_id] = []
-                
+
         return task_prefs, task_agent_scores
 
     def match_task(
@@ -238,9 +248,9 @@ class LabourMarket:
 
         # Track free agents
         free_agents = list(range(n_agents))
-        
+
         np.random.shuffle(free_agents)
-        
+
         while free_agents:
             # Pick any free agent
             new_agent_idx = free_agents.pop()
@@ -308,7 +318,7 @@ class LabourMarket:
             # Handle any exceptions
             for i, result in enumerate(agent_bids):
                 if isinstance(result, Exception):
-                    logger.warning(f"Agent {self.agents[i].id} preference call failed: {result}")
+                    logger.warning(f"Agent agent_idx: {self.agents[i].id} preference call failed: {result}")
                     agent_bids[i] = []  # Default empty preference
 
             return agent_bids
@@ -316,9 +326,13 @@ class LabourMarket:
             logger.warning(f"Batch preference call failed: {e}")
             return [[] for _ in self.agents]
 
-    async def collect_agent_performance_async(self, task_matches: Dict[str, int], upgrade_skill_p: float) -> List[Tuple[str, str, float]]:
+    async def collect_agent_performance_async(
+        self, task_matches: Dict[str, int], upgrade_skill_p=None,
+    ) -> List[Tuple[str, str, float]]:
         """Collect agent's performance asynchonously
         task_matches {task_id: agent_idx}"""
+        
+        upgrade_skill_p = upgrade_skill_p or self.p
 
         async def get_single_agent_performance_async(runner: TaskRunner):
             # If agent.get_preferences is sync, run in executor
@@ -339,7 +353,7 @@ class LabourMarket:
             # Handle any exceptions
             for i, result in enumerate(task_performance):
                 if isinstance(result, Exception):
-                    logger.warning(f"Task {task_ids[i]} preference call failed: {result}")
+                    logger.warning(f"Runner for (agent_idx:{agent_ids[i]}, task_id:{task_ids[i]}) failed: {result}")
                     task_performance[i] = 0  # Agent performance as 0
 
             return list(zip(task_ids, agent_ids, task_performance))
@@ -351,53 +365,50 @@ class LabourMarket:
         """
         Simulate one timestep of the market
         """
-        # Dummy - Generate tasks and payments.
-        # max_payments = self.generate_tasks()
-
         self.round_counter += 1
 
         market_history_string = self.get_history_string()
 
-        task_base_rewards = format_dict_str({task_id: task.base_reward for task_id, task in self.tasks.items()})
+        # Generate task reward as listings
+        base_task_rewards = self.generate_task_payments()
 
-        market_info = MarketInfo(history=market_history_string, task_reward={})
+        market_info = MarketInfo(round=self.round_counter, history=market_history_string, listings=base_task_rewards)
 
         # Get agent data via API
-        agent_action_bids = asyncio.run(self.get_agent_actions_async(market_info))
-        
-        # TODO: Think about what the response should be for agents...
+        agent_action_bids: List[TaskActionResponse] = asyncio.run(self.get_agent_actions_async(market_info))
+
         agent_job_preference: List[List[str]] = []
         agent_job_pricing: List[Dict[str, float]] = []
         agent_job_pricing_normalized: List[Dict[str, float]] = []
-                
-        for agent_action, agent_bid in agent_action_bids:
-            if agent_action == "bid":
 
-                agent_job_pricing.append({task_id: agent_price for task_id, agent_price in agent_bid})
-                agent_job_pricing_normalized.append({task_id: agent_price / self.tasks[task_id].base_reward for task_id, agent_price in agent_bid})
-                agent_job_preference.append([task_id for task_id, _ in agent_bid])
+        for agent_response in agent_action_bids:
+            
+            if agent_response.action == "compete":
+
+                agent_job_pricing.append({task_id: agent_price for task_id, agent_price in agent_response.targets})
+                agent_job_pricing_normalized.append(
+                    {task_id: agent_price / base_task_rewards[task_id] for task_id, agent_price in  agent_response.targets}
+                )
+                agent_job_preference.append([task_id for task_id, _ in  agent_response.targets])
 
             else:
                 agent_job_pricing.append({})
                 agent_job_pricing_normalized.append({})
                 agent_job_preference.append([])
 
-        # Create task preferences based on agent skill level and bids
+        # Create market preferences per task based on agent skill level and bids
         market_preferences, task_agent_scores = self.generate_market_preference(agent_job_pricing_normalized)
 
-        # print(f"Market Pref: {market_preferences}, score {task_agent_scores}")
-
-        # Run stable matching algorithm
+        # Run stable matching algorithm (or single)
         task_matches, unmatched_agents = self.match_task(agent_job_preference, market_preferences)
 
-        # print(f"Task Match: {task_matches}, Unmatched: {unmatched_agents}")
+        # Base reward of task for winning bid before performance adjustment
+        agent_bid_prices: Dict[str, float] = {}
+        
+        # Round reward by agent
+        agent_round_rewards = [0] * self.n_agents
 
-        base_reward_dict = {}
-        agent_reward_dict = {}
-
-        matched_task_agent = {}
-
-        task_performances = asyncio.run(self.collect_agent_performance_async(task_matches, upgrade_skill_p=self.p))
+        task_performances = asyncio.run(self.collect_agent_performance_async(task_matches))
         task_performance_dict = {}
 
         # Recollapse to dict based on task_ids for easier retrieval
@@ -408,69 +419,74 @@ class LabourMarket:
             task_performance_dict[task_id] = (agent_idx, agent_performance)
 
         for task_id, agent_idx in task_matches.items():
-            agent_id = self.agents[agent_idx].id
-            matched_task_agent[task_id] = agent_id
 
             # Check if performing agent is not the same (shouldn't ever happen)
             _agent_idx, agent_performance = task_performance_dict[task_id]
             assert agent_idx == _agent_idx
 
             # Update agent reputation per agent / task
-            self.update_reputation(agent_idx, task_id, agent_performance)
+            new_reputation = self.update_reputation(agent_idx, task_id, agent_performance)
 
-            base_reward = agent_job_pricing[agent_idx][task_id]
-            adjusted_reward = round(base_reward * agent_performance, 3)
-
+            # Get agent bid price, and update agent's adjusted reward based on its bid price * its performance
+            agent_bid_price = agent_job_pricing[agent_idx][task_id]
+            adjusted_reward = agent_bid_price * agent_performance
+            
+            # Log reward
+            agent_bid_prices[task_id] = agent_bid_price
+            agent_round_rewards[agent_idx] += adjusted_reward
+            
             self.task_performance[task_id].append(agent_performance)
 
-            # Log reward
-            base_reward_dict[task_id] = base_reward
-            agent_reward_dict[agent_id] = round(adjusted_reward, 3)
-
-            agent_invest_preference = [[task_id for task_id, _ in agent_bid] for _, agent_bid in agent_action_bids]
-
-            market_response = MarketHistory(
+            market_response = AgentHistory(
                 round=self.round_counter,
                 allocated=task_id,
-                preference=agent_invest_preference[agent_idx],
-                task_id=task_id,
-                base_reward=base_reward,
+                agent_action=agent_action_bids[agent_idx],
+                listings=base_task_rewards,
+                agent_bid_price=agent_bid_price,
+                agent_performance=agent_performance,
                 adjusted_reward=adjusted_reward,
+                reputation=new_reputation,
             )
 
             self.agents[agent_idx].receive_response(market_response)
 
         for agent_idx in unmatched_agents:
-            
-            agent_action, _ = agent_action_bids[agent_idx]
-            
-            # Get the first item in order, and get the task_id in first item
-            task_id = agent_invest_preference[agent_idx][0]
-            
-            agent_task_runner = self.task_runners[task_id][agent_idx]
 
-            if agent_action == "invest":
-                # For unmatched agents, upgrade their skills here
+            agent_action_bid: TaskActionResponse = agent_action_bids[agent_idx]
+            
+            # Get the first task_id in agent's order of preference
+            first_task_id = agent_action_bid.targets[0][0]
+            agent_action = agent_action_bid.action
+
+            agent_task_runner = self.task_runners[first_task_id][agent_idx]
+
+            # For unmatched agents, upgrade their skills here
+            if agent_action == "train":
                 agent_task_runner.upgrade_skill()
-            elif agent_action == "bid" and (np.random.uniform(0, 1) <= self.p):
+            elif agent_action == "compete" and (np.random.uniform(0, 1) <= self.p):
                 agent_task_runner.upgrade_skill()
 
-            market_response = MarketHistory(round=self.round_counter, preference=agent_invest_preference[agent_idx])
+            market_response = AgentHistory(
+                round=self.round_counter,
+                allocated=first_task_id,
+                listings=base_task_rewards,
+                agent_action=agent_action_bids[agent_idx],
+            )
+            
             self.agents[agent_idx].receive_response(market_response)
-
-            agent_reward_dict[self.agents[agent_idx].id] = 0
 
         round_data = RoundData(
             round=self.round_counter,
-            base_reward=base_reward_dict,
             agent_bids=agent_action_bids,
+            base_rewards=base_task_rewards,
+            task_rewards=agent_bid_prices,
             agent_reputation=deepcopy(self.agent_reputation),
             agent_scores=task_agent_scores,
             market_preference=market_preferences,
-            matched_task_agent=matched_task_agent,
+            matched_task_agent=task_matches,
             unmatched_agents=unmatched_agents,
             task_performance=task_performance_dict,
-            agent_rewards=agent_reward_dict,
+            agent_rewards=agent_round_rewards,
         )
 
         self.history.append(round_data)
@@ -484,52 +500,58 @@ class LabourMarket:
         lines = []
         for round_data in self.history[-n_steps:]:
             lines.append(f"=== Round {round_data.round} ===")
-            lines.append(f"Base Task Rewards: {format_dict_str(round_data.base_reward)}")
-            lines.append(f"Allocation: {format_dict_str(round_data.matched_task_agent)}")
-            lines.append(f"Agent Rewards: {format_dict_str(round_data.agent_rewards)}")
+            lines.append(f"Job Listings (task_id, base_price): {format_dict_str(round_data.base_rewards)}")
+            allocated_dict = {task_id: f"{self.agents[agent_idx].id} ({round(round_data.agent_reputation[task_id][agent_idx], 2)})" for task_id, agent_idx in round_data.matched_task_agent.items()}
+            
+            lines.append(f"Allocation (task_id: agent (reputation)): {format_dict_str(allocated_dict)}")
+            # lines.append(f"Agent Rewards: {format_dict_str(round_data.agent_rewards)}")
+            # lines.append(f"Reputation: {format_dict_str()}")
 
         _history = "\n".join(lines)
 
-        agent_rewards = self.get_total_rewards_str()
+        # agent_rewards = self.get_total_rewards_str()
 
-        return _history + agent_rewards
-    
+        return _history # + agent_rewards
+
     @property
     def reputation_history(self):
         return {task_id: [history.agent_reputation[task_id] for history in self.history] for task_id in self.task_ids}
+
     @property
     def agent_reward_history(self):
         return np.array([agent.reward_history for agent in self.agents])
 
+
 class ImproveAgent(AgentBase):
     """Static, mock agent to do things with"""
 
-    def __init__(self, agent_id: int, tasks: List[TaskBase], model = None, verbose=True):
+    def __init__(self, agent_id: int, tasks: List[TaskBase], model=None, verbose=True):
         super().__init__(agent_id=agent_id, tasks=tasks, model=model, verbose=verbose)
         self.preferences = None
 
     def get_agent_action(self, market_info: MarketInfo):
         """Return pre-defined prefs, otherwise random preferences by default"""
-        
-        action = np.random.choice(["bid", "invest"], p=(0.8, 0.2))
 
+        action = np.random.choice(["compete", "train"], p=(0.8, 0.2))
         if not self.preferences:
             self.preferences = [
                 self.task_ids[i] for i in np.random.permutation(self.n_tasks)
             ]
+            
+        response = TaskActionResponse(reasoning="",
+                                      action=action,
+                                      targets=[(p, 10) for p in self.preferences])
         
-        return action, [(p, 10) for p in self.preferences]
+        return response
 
-    
-
-# %% 
-task_ids = ["task_a"]
+# %%
+task_ids = ["task_a", "task_b", "task_c"]
 # task_ids = ["task_a"]
 tasks = [CipherTask(t) for t in task_ids]
 for task in tasks:
     task.generate_ground_truth()
-    task.__setattr__('base_reward', 10)
-# agents = 
+    task.__setattr__("base_reward", 10)
+# agents =
 agents = []
 
 from ssa.utils import init_azure_model
@@ -537,102 +559,139 @@ from tqdm import trange
 
 model = init_azure_model()
 
-agent_test = ImproveAgent(agent_id="agent_0_improve", tasks=tasks, model=model)
+# agent_test = ImproveAgent(agent_id="agent_0_improve", tasks=tasks, model=model)
 # agent_test.preferences =  ["task_a", "task_b"]
-agents.append(agent_test)
+# agents.append(agent_test)
 
-agents.extend(
-    [MockAgent(agent_id=f"agent_{i}_random", tasks=tasks, model=model) for i in range(1, 2)]
-)
+agents.extend([MockAgent(agent_id=f"agent_{i}_random", tasks=tasks, model=model) for i in range(10)])
 
-market = LabourMarket(tasks, agents, t=0.1)
-for _ in trange(100):
+agent_llm = LLMAgent(agent_id="llm_agent", tasks=tasks, model=model, verbose=True)
+agents.append(agent_llm)
+
+market = LabourMarket(tasks, agents, t=0.2)
+for _ in trange(5):
     market.simulate_timestep()
-    
 # %%
-import matplotlib.pyplot as plt 
 
-plt.plot(market.agent_reward_history.T)
-    
-# %%    
-all_reputation = []
-all_rewards = []
+# print(agents[-1].generate_agent_history_string())
+agents[-1].get_token_usage()
+# %%
+#  %%
 
-for _ in range(10):
-    task_ids = ["task_a", "task_b", "task_c"]
-    # task_ids = ["task_a"]
-    tasks = [ProxyTask(t) for t in task_ids]
-    # agents = 
-    agents = []
-    # for agent in agents:
-        # agent.preferences = ["task_a", "task_b", "task_c"]
+agent.agent_history[0].adjusted_reward
 
-    # agent_test = MockAgent(agent_id="agent_3_static", tasks=tasks, model=None)
-    # # agent_test.preferences = ["task_a", "task_b"]
-    # agents.append(agent_test)
-
-    agent_test = ImproveAgent(agent_id="agent_0_improve", tasks=tasks, model=None)
-    # agent_test.preferences =  ["task_a", "task_b"]
-    agents.append(agent_test)
-    
-    agents.extend(
-        [MockAgent(agent_id=f"agent_{i}_random", tasks=tasks, model=None) for i in range(1, 5)]
-    )
-
-    market = LabourMarket(tasks, agents, t=0.1)
-    for _ in range(100):
-        market.simulate_timestep()
-    
-    all_reputation.append(market.reputation_history)
-    all_rewards.append(market.agent_reward_history)
-
-
+# %%
 import matplotlib.pyplot as plt
 
-task_id = "task_a"
+plt.plot(np.cumsum(market.agent_reward_history.T, axis=0), label=market.agent_ids)
+plt.legend()
+# %%
+token_usage = market.agents[-1].token_usage
+# sum([t['completion_tokens'] for t in token_usage])
+# sum([t['prompt_tokens'] for t in token_usage])
+sum([t['total_tokens'] for t in token_usage])
 
-agent_rewards = np.cumsum(all_rewards, axis=2).transpose((1, 0, 2))
-
-agent_reputations = np.array([ar[task_id] for ar in all_reputation]).transpose((2, 0, 1))
-
-fig, axes = plt.subplots(2, 1, figsize=(12, 12))
-
-axes[0] = plot_agent_trace(axes[0], agent_rewards, market.agent_ids)
-axes[0].set_title("Agent Reward Over Time")
-axes[1] = plot_agent_trace(axes[1], agent_reputations, market.agent_ids)
-axes[1].set_title("Agent Reputation Over Time")
-
-plt.show()
-
-allocations = [history.matched_task_agent for history in market.history]
-
-fig, ax = plt.subplots(figsize=(12, 6))
-ax = plot_allocation(ax, allocation=allocations)
-# plt.tight_layout()
-plt.show()
+sum()
 
 # %%
-agent = market.agents[0]
-
-plt.plot(np.array(list(agent.all_skill_history.values())).T)
 
 # %%
-reputations = np.array([[history.agent_reputation[task_id] for history in market.history] for task_id in market.task_ids])
+# all_reputation = []
+# all_rewards = []
+
+# for _ in range(10):
+#     task_ids = ["task_a", "task_b", "task_c"]
+#     # task_ids = ["task_a"]
+#     tasks = [ProxyTask(t) for t in task_ids]
+#     # agents =
+#     agents = []
+#     # for agent in agents:
+#     # agent.preferences = ["task_a", "task_b", "task_c"]
+
+#     # agent_test = MockAgent(agent_id="agent_3_static", tasks=tasks, model=None)
+#     # # agent_test.preferences = ["task_a", "task_b"]
+#     # agents.append(agent_test)
+
+#     agent_test = ImproveAgent(agent_id="agent_0_improve", tasks=tasks, model=None)
+#     # agent_test.preferences =  ["task_a", "task_b"]
+#     agents.append(agent_test)
+
+#     agents.extend([MockAgent(agent_id=f"agent_{i}_random", tasks=tasks, model=None) for i in range(1, 5)])
+
+#     market = LabourMarket(tasks, agents, t=0.1)
+#     for _ in range(100):
+#         market.simulate_timestep()
+
+#     all_reputation.append(market.reputation_history)
+#     all_rewards.append(market.agent_reward_history)
+# # %%
+
+# import matplotlib.pyplot as plt
+
+# plt.plot(np.cumsum(market.agent_reward_history.T, axis=0), label=market.agent_ids)
+# # plt.plot(market.reputation_history['task_a'], label=market.agent_ids)
+# plt.legend()
+# # %%
+# market.agents[-1].subagents['task_a'].knowledge_base
+
+# # %%
+# market.agents[0].model_dump()
+# # %%
+# class ExperimentLog:
+#     """Dataclasss to save all logging stuff """
+#     def __init__(self, market: LabourMarket):
+        
+# # %%
+
+# task_id = "task_a"
 
 
-# %%
-[history.agent_bids for history in market.history]
+# agent_rewards = np.cumsum(all_rewards, axis=2).transpose((1, 0, 2))
 
-[history.agent_scores for history in market.history]
+# agent_reputations = np.array([ar[task_id] for ar in all_reputation]).transpose((2, 0, 1))
 
-# %% 
-print(market.get_history_string())
-# %%
-def plot_agent_reputation(ax, market: LabourMarket):
-    pass
+# fig, axes = plt.subplots(2, 1, figsize=(12, 12))
+
+# axes[0] = plot_agent_trace(axes[0], agent_rewards, market.agent_ids)
+# axes[0].set_title("Agent Reward Over Time")
+# axes[1] = plot_agent_trace(axes[1], agent_reputations, market.agent_ids)
+# axes[1].set_title("Agent Reputation Over Time")
+
+# plt.show()
+
+# allocations = [history.matched_task_agent for history in market.history]
+
+# fig, ax = plt.subplots(figsize=(12, 6))
+# ax = plot_allocation(ax, allocation=allocations)
+# # plt.tight_layout()
+# plt.show()
+
+# # %%
+# agent = market.agents[0]
+
+# plt.plot(np.array(list(agent.all_skill_history.values())).T)
+
+# # %%
+# reputations = np.array(
+#     [[history.agent_reputation[task_id] for history in market.history] for task_id in market.task_ids]
+# )
 
 
-# %% 
+# # %%
+# [history.agent_bids for history in market.history]
 
-print(agent.generate_agent_history_string())
-# %%
+# [history.agent_scores for history in market.history]
+
+# # %%
+# print(market.get_history_string())
+
+
+# # %%
+# def plot_agent_reputation(ax, market: LabourMarket):
+#     pass
+
+
+# # %%
+
+# print(agent.generate_agent_history_string())
+# # %%

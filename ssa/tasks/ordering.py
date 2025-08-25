@@ -1,4 +1,4 @@
-from task import TaskBase, Question
+from ssa.task import TaskBase, Question
 from scipy.stats import kendalltau
 import numpy as np
 import random

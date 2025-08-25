@@ -2,7 +2,7 @@
 # import random
 import string
 from typing import Dict, List, Tuple, Optional, Set
-from task import TaskBase, Question
+from ssa.task import TaskBase, Question
 import heapq
 import random
 
@@ -222,7 +222,7 @@ if __name__ == "__main__":
     print(f"Feedback: Edge {feedback[0]}-{feedback[1]} has weight {feedback[2]}")
 
 # %%
-from utils import init_azure_model
+from ssa.utils import init_azure_model
 
 model = init_azure_model()
 agent = GraphPathAgent(model=model)

@@ -3,8 +3,8 @@ import random
 import string
 import itertools
 from typing import List, Any, Tuple, Dict
-from task import TaskBase
-from utils import init_azure_model
+from ssa.task import TaskBase
+from ssa.utils import init_azure_model
 
 
 # --- Assuming TaskBase and Question stubs from before ---

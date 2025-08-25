@@ -8,7 +8,7 @@ from langchain.schema import AIMessage, HumanMessage, SystemMessage
 import ast
 
 
-from task import TaskBase, train_agent_on_task
+from ssa.task import TaskBase, train_agent_on_task
 
 class Question(BaseModel):
     question_text: str
@@ -237,7 +237,7 @@ def run_boolean_experiment(model):
     return scores
 
 # %%
-from utils import init_openrouter_chat_model
+from ssa.utils import init_openrouter_chat_model
 from langchain.schema import AIMessage, HumanMessage, SystemMessage
 
 OPENROUTER_API = "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"

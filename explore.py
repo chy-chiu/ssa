@@ -1,5 +1,5 @@
 # %%
-from utils import init_openrouter_chat_model
+from ssa.utils import init_openrouter_chat_model
 from langchain.schema import AIMessage, HumanMessage, SystemMessage
 
 OPENROUTER_API = "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"

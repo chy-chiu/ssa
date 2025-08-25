@@ -2,13 +2,13 @@
 import random
 import string
 from typing import Dict, List, Tuple, Optional
-from task import TaskBase, Question
+from ssa.task import TaskBase, Question
 from langchain.schema import SystemMessage, HumanMessage
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 from langchain_core.output_parsers import JsonOutputParser
 from loguru import logger
-from task import TaskSubAgent, TaskRunner
+from ssa.task import TaskSubAgent, TaskRunner
 
 class CipherResponse(BaseModel):
 
@@ -29,7 +29,7 @@ class CipherTask(TaskBase):
         self.cipher_mapping: Dict[str, str] = {}  # A->X, B->Y, etc.
         self.reverse_mapping: Dict[str, str] = {}  # X->A, Y->B, etc.
 
-        with open("words.txt", "r") as f:
+        with open("assets/words.txt", "r") as f:
             self.words = [s.upper().strip("\n") for s in f.readlines()]
 
     def generate_ground_truth(self, seed: int = None):
@@ -223,6 +223,30 @@ if __name__ == "__main__":
     print(f"Agent Response: {agent_response}")
     print(f"Score: {score:.2f}")
     print(f"Feedback: {feedback[1]} → {feedback[0]}")
+    
+# from ssa.utils import init_azure_model
+# secrets_path = '../assets/secrets.yaml'
+# model = init_azure_model(secrets_path=secrets_path)
+
+# agent = CipherAgent(model)
+
+# task = CipherTask(task_id=1)
+# task.generate_ground_truth(seed=42)
+
+# runner = TaskRunner(agent=agent, task=task)
+
+# runner.perform_task()
+
+# # %%
+# from tqdm import trange
+# scores = [] 
+# for _ in trange(50):
+#     scores.append(runner.perform_task())
+# # %%
+# import matplotlib.pyplot as plt
+# plt.plot(scores)
+# %%
+
 
 # # %%
 # from utils import init_azure_model, init_openrouter_chat_model
@@ -300,20 +324,5 @@ if __name__ == "__main__":
 #     np.mean(scores, axis=1) - np.std(scores, axis=1),
 #     np.mean(scores, axis=1) + np.std(scores, axis=1),
 #     alpha=0.3,
-# )
-# # %%
-# agent = CipherAgent(model)
 
-# task = CipherTask(task_id=1)
-# task.generate_ground_truth(seed=42)
-
-# runner = TaskRunner(agent=agent, task=task)
-# # %%
-# from tqdm import trange
-# scores = [] 
-# for _ in trange(50):
-#     scores.append(runner.perform_task())
-# # %%
-# import matplotlib.pyplot as plt
-# plt.plot(scores)
-# # %%
+# %%
