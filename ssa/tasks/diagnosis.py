@@ -3,7 +3,7 @@ import random
 import string
 import itertools
 from typing import List, Any, Tuple, Dict
-from ssa.task import TaskBase
+from ssa.tasks.task import TaskBase
 from ssa.utils import init_azure_model
 
 

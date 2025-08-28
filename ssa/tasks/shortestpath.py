@@ -2,7 +2,7 @@
 # import random
 import string
 from typing import Dict, List, Tuple, Optional, Set
-from ssa.task import TaskBase, Question
+from ssa.tasks.task import TaskBase, Question
 import heapq
 import random
 

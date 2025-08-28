@@ -2,13 +2,13 @@
 import random
 import string
 from typing import Dict, List, Tuple, Optional
-from ssa.task import TaskBase, Question
+from ssa.tasks.task import TaskBase, Question
 from langchain.schema import SystemMessage, HumanMessage
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 from langchain_core.output_parsers import JsonOutputParser
 from loguru import logger
-from ssa.task import TaskSubAgent, TaskRunner
+from ssa.tasks.task import TaskSubAgent, TaskRunner
 
 class CipherResponse(BaseModel):
 
@@ -16,7 +16,6 @@ class CipherResponse(BaseModel):
     answer: List[str] = Field(
         description="List of decrypted words. Reply with your best guess if information is incomplete."
     )
-
 
 class CipherTask(TaskBase):
     """
@@ -29,7 +28,7 @@ class CipherTask(TaskBase):
         self.cipher_mapping: Dict[str, str] = {}  # A->X, B->Y, etc.
         self.reverse_mapping: Dict[str, str] = {}  # X->A, Y->B, etc.
 
-        with open("assets/words.txt", "r") as f:
+        with open("ssa/assets/words.txt", "r") as f:
             self.words = [s.upper().strip("\n") for s in f.readlines()]
 
     def generate_ground_truth(self, seed: int = None):
@@ -158,6 +157,8 @@ Reply in JSON output format only and nothing else. Format as below:
         self.trace = []
 
     def probe_task(self, question: Question) -> CipherResponse:
+        
+        # TODO: Move this one level up + add retries (???) maybe... 
         """Attempt to decrypt the ciphertext using known mappings"""
         kb_text = self._format_knowledge_base()
 
@@ -173,7 +174,7 @@ Reply in JSON output format only and nothing else. Format as below:
             [SystemMessage(self.system_prompt), HumanMessage(prompt)]
         )
 
-        self.trace.append(response.content)
+        self.trace.append((prompt, response.content))
         self.token_usage.append(response.response_metadata["token_usage"])
 
         return CipherResponse.model_validate(self.parser.parse(response.content))

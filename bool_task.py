@@ -8,7 +8,7 @@ from langchain.schema import AIMessage, HumanMessage, SystemMessage
 import ast
 
 
-from ssa.task import TaskBase, train_agent_on_task
+from ssa.tasks.task import TaskBase, train_agent_on_task
 
 class Question(BaseModel):
     question_text: str

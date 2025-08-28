@@ -54,7 +54,7 @@ def init_azure_model(
     Returns:
         An instance of ChatOpenAI configured for the specified provider.
     """
-    secrets_path = secrets_path or 'assets/secrets.yaml'
+    secrets_path = secrets_path or 'ssa/assets/secrets.yaml'
     lab_endpoints = yaml.safe_load(open(secrets_path))
     config = lab_endpoints[model_name]
     endpoint = config["API_ENDPOINT"]
