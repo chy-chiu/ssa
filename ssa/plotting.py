@@ -6,7 +6,7 @@ from collections import defaultdict
 from typing import List, Dict
 
 
-def plot_allocation(ax, allocation: List[Dict[str, str]]):
+def plot_allocation(ax, allocation: List[Dict[str, str]], agent_ids=None):
     """
     Plot task allocation over time as horizontal bars.
 
@@ -28,6 +28,8 @@ def plot_allocation(ax, allocation: List[Dict[str, str]]):
 
     all_tasks = sorted(list(all_tasks), reverse=True)
     all_agents = sorted(list(all_agents))
+
+    agent_ids = agent_ids or all_agents 
 
     # Create color palette for agents
     colors = sns.color_palette("tab10", n_colors=len(all_agents))

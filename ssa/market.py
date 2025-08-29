@@ -115,8 +115,12 @@ class ExperimentLog(BaseModel):
     @property
     def agent_scores(self) -> Dict[str, List[List[Tuple[int, float]]]]: # task_id: agent_idx 
         
-        return self._get_agent_trace_attr('agent_scores')
-      
+        return self._get_agent_trace_attr('unranked_agent_scores')
+    
+    @property
+    def agent_total_rewards(self) -> List[List[float]]:
+        return [hx.agent_total_rewards for hx in self.history]
+    
     
 class LabourMarket:
     def __init__(
@@ -238,8 +242,8 @@ class LabourMarket:
         # Normalize scores so they sum to 1
         utility = utility / np.sum(utility)
 
-        for _agent_reputation, _agent_bid, _utility in zip(agent_reputation, agent_bid, utility):
-            logger.debug(f"rep: {_agent_reputation:.4f}, price: {_agent_bid:.4f}, agent_score: {_utility:.4f}")
+        # for _agent_reputation, _agent_bid, _utility in zip(agent_reputation, agent_bid, utility):
+        #     logger.debug(f"rep: {_agent_reputation:.4f}, price: {_agent_bid:.4f}, agent_score: {_utility:.4f}")
 
         return utility
     
