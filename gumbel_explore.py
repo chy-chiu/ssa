@@ -409,6 +409,20 @@ def calculate_utility(price_norm, rep_norm, k_rep=10, c_rep=0.5, beta_rep=0.8, b
 
     return total_utility
 
+# %%
+
+def utility_che(price_norm, rep_norm, alpha=0.5, v_max=1.0):
+    """
+    Pure Che (1993): U = V(q) - p
+    """
+    
+    V_q = v_max * (rep_norm ** alpha)
+    utility = V_q - price_norm  # Linear in price, as in original paper
+    
+    # Normalize if needed
+    prob = 1.0 / (1.0 + np.exp(-8*utility))
+    return utility, prob
+
 
 # Create a grid of possible reputation and bid values
 reputation_vals = np.linspace(0, 1, 100)
@@ -419,7 +433,8 @@ R, B = np.meshgrid(reputation_vals, bid_vals)
 
 fig, ax = plt.subplots(1, 1, figsize=(6, 5))
 
-score = calculate_utility(B, R, k_rep=10, c_rep=0.7, beta_rep=1, beta_price=1, gamma=0.8)
+# score = calculate_utility(B, R, k_rep=10, c_rep=0.7, beta_rep=1, beta_price=1, gamma=0.8)
+_, score = utility_che(B, R, alpha=0.5)
 print(score.max())
 contour = ax.contourf(B, R, score, levels=500, cmap='nipy_spectral')
 # ax.set_title(f"Linear Model\n{title} (alpha={params['alpha']})", fontsize=16)

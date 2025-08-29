@@ -134,7 +134,6 @@ class ProxyTask(TaskBase):
 
     def __init__(self, task_id: str):
         super().__init__(task_id=task_id)
-        self.base_reward = 10
         self.debug_int = 0
 
     def generate_ground_truth(self, seed=None):
@@ -160,7 +159,7 @@ class ProxyAgent(TaskSubAgent):
         self._skill_level = 0.25
 
     def probe_task(self, question):
-        return np.clip(self._skill_level + np.random.normal(0, 0.1), 0, 1)
+        return np.clip(self._skill_level * (1 + np.random.normal(0, 0.1)), 0, 1)
 
     def update_knowledge_base(self, feedback_info):
         self._skill_level = 1 - (1 - self._skill_level) * 0.9
@@ -168,7 +167,7 @@ class ProxyAgent(TaskSubAgent):
 
     @property
     def skill_level(self):
-        return self._skill_level
+        return int(self._skill_level * 100)
 
 
 # %%

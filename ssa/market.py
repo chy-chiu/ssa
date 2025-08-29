@@ -29,10 +29,11 @@ import nest_asyncio
 nest_asyncio.apply()
 
 EWMA_SPAN = 10
-REPUTATION_SENSITIVITY = 0.2
+REPUTATION_PRIOR_STRENGTH = 1.0
 INITIAL_REPUTATION = 0.5
 GUMBEL_NOISE = 0.2
 SKILL_P = 0.2
+L = 0.85
 
 class RoundData(BaseModel):
     """Info retained for each round"""
@@ -41,7 +42,9 @@ class RoundData(BaseModel):
 
     # List of jobs, with their base price, agent's bid for those jobs, and price of the winning agent
     agent_actions: List[TaskActionResponse] # Full list of agent actions that turn
-    agent_bids: Dict[str, Dict[int, float]] # List of bids by task
+    agent_bids: Dict[str, Dict[int, float]] # List of bids by agents by task
+    agent_bids_normalized: Dict[str, Dict[int, float]] # List of bids by task
+    agent_preferences: List[List[str]] # List of agent job preferences
     base_rewards: Dict[str, float] # listed budget
     task_rewards: Dict[str, float] # agreed price with bid winning agent
 
@@ -51,7 +54,8 @@ class RoundData(BaseModel):
     agent_skills: List[Dict[str, int]] # n_agents, n_tasks
 
     # Outcome of each agent's scores (which is a combination of agent_bid + reputation + gumbel noise)
-    agent_scores: Dict[str, Dict[int, float]]  # task_id: (agent_idx: agent_score)
+    reranked_agent_scores: Dict[str, Dict[int, float]]  # task_id: (agent_idx: agent_score)
+    unranked_agent_scores: Dict[str, Dict[int, float]]  # task_id: (agent_idx: agent_score)
     market_preference: Dict[str, List[int]]  # ordered preferences from ^
 
     # Outcome of stable matching
@@ -85,6 +89,34 @@ class ExperimentLog(BaseModel):
     def load(cls, filepath: str):
         with open(filepath, 'r') as f:
             return cls.model_validate_json(f.read())
+        
+    def _get_agent_trace_attr(self, attr): 
+        """Helper function for sparse logs"""
+
+        _attr_dict = {}
+
+        for task_id in self.task_ids:
+            task_attr_list = [[] for _ in self.agent_ids]
+            for hx in self.history:
+                round_agent_attr_value = hx.__getattribute__(attr)[task_id]
+                for agent_idx, attr_v in round_agent_attr_value.items():
+                    task_attr_list[agent_idx].append((hx.round, attr_v))
+
+            _attr_dict[task_id] = task_attr_list
+
+        return _attr_dict
+
+
+    @property
+    def agent_bids(self) -> Dict[str, List[List[Tuple[int, float]]]]: # task_id: agent_idx 
+
+        return self._get_agent_trace_attr('agent_bids')
+    
+    @property
+    def agent_scores(self) -> Dict[str, List[List[Tuple[int, float]]]]: # task_id: agent_idx 
+        
+        return self._get_agent_trace_attr('agent_scores')
+      
     
 class LabourMarket:
     def __init__(
@@ -95,7 +127,8 @@ class LabourMarket:
         p=SKILL_P,
         rep_initial=INITIAL_REPUTATION,
         rep_window=EWMA_SPAN,
-        rep_sensitivity=REPUTATION_SENSITIVITY,
+        rep_sensitivity=REPUTATION_PRIOR_STRENGTH,
+        rep_lambda=L,
     ):
 
         # Initialize tasks
@@ -129,7 +162,8 @@ class LabourMarket:
         self.rep_initial = rep_initial
         self.rep_window = rep_window
         self.rep_sensitivity = rep_sensitivity
-        self.curr_agent_reputation = {task_id: [rep_initial] * self.n_agents for task_id in self.task_ids}
+        self.rep_lambda = rep_lambda
+        self.curr_agent_reputation = {task_id: [self.rep_initial] * self.n_agents for task_id in self.task_ids}
 
         logger.info(f"Set up LabourMarket with {self.n_agents} agents and {self.n_tasks} tasks. Initializing...")
         self.initialize()
@@ -150,58 +184,77 @@ class LabourMarket:
         for task_id in self.task_performance.keys():
 
             self.task_performance[task_id].extend(
-                [agent_performance[task_id] for agent_performance in agent_performances]
+                [(agent_idx, agent_performance[task_id]) for agent_idx, agent_performance in enumerate(agent_performances)]
             )
+
+            for agent_idx, _ in enumerate(self.agents):
+                agent_performance = np.mean(agent_performances[agent_idx][task_id])
+                initial_rep = self.update_reputation(agent_idx, task_id, agent_performance)
+                self.agents[agent_idx].reputation[task_id] = (0, initial_rep, 0)
 
     def update_reputation(self, agent_idx: int, task_id: str, agent_performance: float) -> float:
         """Updates agent reputation in accordance to agent performance"""
 
-        # Float for now. TODO: Make it traceable according to agent...
-        performance_history = self.task_performance[task_id]
+        performance_history: List[Tuple[int, float]] = self.task_performance[task_id] # [(agent_idx, performance)]
+        community_perfomrance_history = np.array([v[1] for v in performance_history])
+        agent_performance_history  = np.array([v[1] for v in performance_history if v[0]==agent_idx])
+        
+        community_baseline_performance = np.mean(community_perfomrance_history[-self.rep_window:]) if len(community_perfomrance_history) > 0 else self.rep_initial
 
-        if len(performance_history) < EWMA_SPAN:
-            # Not enough history for EWMA, use a simple expanding mean
-            historical_mean = np.mean(performance_history)
-            historical_std = np.std(performance_history) if len(performance_history) > 1 else 1e-6
+        # accumulate agent evidence r,s with forgetting (Eq. 12/13 style recursion)
+        if agent_performance_history is not None and len(agent_performance_history) > 0:
+            r = np.sum(agent_performance_history * np.array([self.rep_lambda ** i for i, _ in enumerate(agent_performance_history)][::-1]))
+            s = np.sum((1 - agent_performance_history) * np.array([self.rep_lambda ** i for i, _ in enumerate(agent_performance_history)][::-1]))
         else:
-            # Use EWMA for a more responsive historical average
-            history_series = pd.Series(performance_history)
-            historical_mean = history_series.ewm(span=EWMA_SPAN).mean().iloc[-1]
-            historical_std = history_series.rolling(window=EWMA_SPAN, min_periods=2).std().iloc[-1]
+            agent_performance_history = 0.0
+            s = 0.0
+        
+        # incorporate the new performance (one more recursive step)
+        r = self.rep_lambda * r + agent_performance
+        s = self.rep_lambda * s + (1.0 - agent_performance)
 
-        historical_std = max(historical_std, 1e-6)
+        # expectation with base-rate prior (subjective-logic form)
+        rep = (r + self.rep_sensitivity * community_baseline_performance) / (r + s + self.rep_sensitivity)
 
-        standardized_performance = (agent_performance - historical_mean) / historical_std
-
-        reputation_gain = REPUTATION_SENSITIVITY * np.tanh(standardized_performance)
-
-        # print(
-        #     f"Task: {task_id} Agent: {agent_idx} Agent performance: {agent_performance:.3f}, Hx Mean: {historical_mean:.3f}, Rep: {reputation_gain:.3f}"
-        # )
-
-        agent_reputation = self.curr_agent_reputation[task_id][agent_idx]
-
-        new_reputation = np.clip(agent_reputation + reputation_gain, 0, 1)
+        new_reputation = np.clip(rep, 0, 1)
 
         self.curr_agent_reputation[task_id][agent_idx] = new_reputation
 
         return new_reputation
 
-    def calculate_agent_fitness(self, agent_idx, agent_bid, task_id, s_p=3, s_r=1.5, a=0.8):
-        """Derive agent fitness from a linear model, and move the score to logit space with exponential decay"""
+    @staticmethod
+    def calculate_agent_fitness(agent_reputation, agent_bid, alpha=0.5):
+        """Derive agent fitness from a linear model, and move the score to logit space with exponential decay""" 
 
-        agent_reputation = self.curr_agent_reputation[task_id][agent_idx]
+        if not agent_reputation: return []
 
-        # Cap at 110% of bidding price - bid lower is better 
-        adj_price = max(1.1 - agent_bid, 0)
+        agent_reputation = np.array(agent_reputation)
+        agent_bid = np.array(agent_bid)
 
-        price_score = 1 - np.exp(-s_p * (adj_price))
-        reputation_score = 1 - np.exp(-s_r * (agent_reputation))
 
-        # Calculate a composite score here...
-        agent_score = reputation_score * a + price_score * (1 - a)
+        V_q = agent_reputation ** alpha
+        utility = V_q - agent_bid  # Linear in price, as in original paper
+        
+        # Normalize scores so they sum to 1
+        utility = utility / np.sum(utility)
 
-        logger.debug(f"rep: {agent_reputation}, rep_score: {reputation_score}, price: {agent_bid}, price_score: {price_score}")
+        for _agent_reputation, _agent_bid, _utility in zip(agent_reputation, agent_bid, utility):
+            logger.debug(f"rep: {_agent_reputation:.4f}, price: {_agent_bid:.4f}, agent_score: {_utility:.4f}")
+
+        return utility
+    
+        # topp douglas
+      
+        # # Cap at 110% of bidding price - bid lower is better 
+        # adj_price = max(1.1 - agent_bid, 0)
+
+        # price_score = 1 - np.exp(-s_p * (adj_price))
+        # reputation_score = 1 - np.exp(-s_r * (agent_reputation))
+
+        # # Calculate a composite score here...
+        # agent_score = reputation_score * a + price_score * (1 - a)
+
+        # logger.debug(f"rep: {agent_reputation:.4f}, rep_score: {reputation_score:.4f}, price: {agent_bid:.4f}, price_score: {price_score:.4f}, agent_score: {agent_score:.4f}")
 
         return agent_score
 
@@ -217,47 +270,59 @@ class LabourMarket:
         log_probs = np.log(fitness)
         
         # Scale the logits by temperature BEFORE adding the noise
-        agent_score = (log_probs / t) + gumbel_noise
+        reranked_agent_score = (log_probs / t) + gumbel_noise
 
         # Return indices sorted by perturbed skills (descending)
-        return agent_score, np.argsort(agent_score)
+        return reranked_agent_score, np.argsort(reranked_agent_score)[::-1]
 
     def generate_market_preference(self, agent_pricing: List[Dict[str, float]]) -> Tuple[Dict[str, List[int]]]:
         """Create preference rankings for all tasks based on agent pricing
         """
 
         task_prefs: Dict[str, List[int]] = {}
-        task_agent_scores: Dict[str, Dict[int, float]] = {}
+        unranked_agent_scores: Dict[str, Dict[int, float]] = {}
+        reranked_agent_scores: Dict[str, Dict[int, float]] = {}
+
         for task_id in self.task_ids:
 
             agents_bidding = []
+            bidding_agent_price = []
+            bidding_agent_reputation = []
 
             # This is the score to decide agent matching
-            agents_score = []
-
+            
             for agent_idx, agent_task_price in enumerate(agent_pricing):
 
                 if agent_bid := agent_task_price.get(task_id):
 
-                    agent_score = self.calculate_agent_fitness(agent_idx=agent_idx, agent_bid=agent_bid, task_id=task_id)
+                    
+                    agent_reputation = self.curr_agent_reputation[task_id][agent_idx]
+                    bidding_agent_reputation.append(agent_reputation)
+                    bidding_agent_price.append( agent_bid)
 
                     agents_bidding.append(agent_idx)
-                    agents_score.append(agent_score)
+            
+            unranked_agent_score = self.calculate_agent_fitness(bidding_agent_reputation, bidding_agent_price)
 
-            if agents_score:
-                weighted_ranking, task_ranking = self.gumbel_rerank(np.array(agents_score), t=self.t)
+            if len(unranked_agent_score) >= 0:
+
+                reranked_agent_score, task_ranking = self.gumbel_rerank(np.array(unranked_agent_score), t=self.t)
                 # print("agents bidding", agents_bidding)
                 task_prefs[task_id] = np.array(agents_bidding)[task_ranking]
                 # print("task preferences", task_prefs[task_id])
 
-                task_agent_score = {
-                    agent_idx: float(agent_score) for agent_idx, agent_score in zip(agents_bidding, weighted_ranking)
+                _reranked_agent_scores = {
+                    agent_idx: float(reranked_task_agent_score) for agent_idx, reranked_task_agent_score in zip(agents_bidding, reranked_agent_score)
                 }
-                task_agent_scores[task_id] = task_agent_score
+                _unranked_agent_scores = {
+                    agent_idx: float(unranked_task_agent_score) for agent_idx, unranked_task_agent_score in zip(agents_bidding, unranked_agent_score)
+                }
+                reranked_agent_scores[task_id] = _reranked_agent_scores
+                unranked_agent_scores[task_id] = _unranked_agent_scores
             else:
                 task_prefs[task_id] = []
 
-        return task_prefs, task_agent_scores
+        return task_prefs, unranked_agent_scores, reranked_agent_scores
 
     def match_task(
         self,
@@ -530,13 +595,14 @@ class LabourMarket:
         market_info = MarketInfo(round=self.round_counter, history=market_history_string, listings=base_task_rewards, info={'round_data': self.history[-10:] if self.history else None, 'agent_skills': {agent.id: agent.skill_level_by_task for agent in self.agents}})
 
         # Get agent data via API
-        agent_actions: List[TaskActionResponse] = asyncio.run(self.get_agent_actions_async(market_info))
+        self.agents[0].get_agent_action(market_info)
+        agent_responses: List[TaskActionResponse] = asyncio.run(self.get_agent_actions_async(market_info))
 
         agent_job_preference: List[List[str]] = []
         agent_job_pricing: List[Dict[str, float]] = []
         agent_job_pricing_normalized: List[Dict[str, float]] = []
 
-        for agent_response in agent_actions:
+        for agent_response in agent_responses:
 
             if agent_response.action == "bid":
 
@@ -555,7 +621,7 @@ class LabourMarket:
                 agent_job_preference.append([])
 
         # Create market preferences per task based on agent skill level and bids
-        market_preferences, task_agent_scores = self.generate_market_preference(agent_job_pricing_normalized)
+        market_preferences, unranked_agent_scores, reranked_agent_scores = self.generate_market_preference(agent_job_pricing_normalized)
 
         # Run stable matching algorithm (or single)
         task_matches, unmatched_agents = self.match_task(agent_job_preference, market_preferences)
@@ -595,12 +661,12 @@ class LabourMarket:
             winning_bid_prices[task_id] = agent_bid_price
             agent_round_rewards[agent_idx] += adjusted_reward
 
-            self.task_performance[task_id].append(agent_performance)
+            self.task_performance[task_id].append((agent_idx, agent_performance))
 
             market_response = AgentHistory(
                 round=self.round_counter,
                 allocated=task_id,
-                agent_action=agent_actions[agent_idx],
+                agent_action=agent_responses[agent_idx],
                 listings=base_task_rewards,
                 agent_bid_price=agent_bid_price,
                 agent_performance=agent_performance,
@@ -612,11 +678,19 @@ class LabourMarket:
 
         for agent_idx in unmatched_agents:
 
-            agent_action: TaskActionResponse = agent_actions[agent_idx]
+            agent_action: TaskActionResponse = agent_responses[agent_idx]
 
-            # Get the first task_id in agent's order of preference
-            first_task_id = agent_action.targets[0][0]
-            agent_action = agent_action.action
+            if agent_action.targets:
+
+                # Get the first task_id in agent's order of preference
+                first_task_id = agent_action.targets[0][0]
+                agent_action = agent_action.action
+
+            else:
+
+                logger.warning(f"Empty agent action for agent {agent_idx}: {agent_action}")
+
+                first_task_id = "None"
 
             agent_task_runner = self.task_runners[first_task_id][agent_idx]
 
@@ -630,7 +704,7 @@ class LabourMarket:
                 round=self.round_counter,
                 allocated=first_task_id,
                 listings=base_task_rewards,
-                agent_action=agent_actions[agent_idx],
+                agent_action=agent_responses[agent_idx],
             )
 
             self.agents[agent_idx].receive_response(market_response)
@@ -643,17 +717,21 @@ class LabourMarket:
         # Just for logging 
         
         agent_bids: Dict[str, Dict[int, float]] =  {task_id: {agent_idx: agent_job_bid[task_id] for agent_idx, agent_job_bid in enumerate(agent_job_pricing) if agent_job_bid.get(task_id) is not None} for task_id in self.task_ids}
-        
+        agent_bids_normalized: Dict[str, Dict[int, float]] =  {task_id: {agent_idx: agent_job_bid[task_id] for agent_idx, agent_job_bid in enumerate(agent_job_pricing_normalized) if agent_job_bid.get(task_id) is not None} for task_id in self.task_ids}
+
         round_data = RoundData(
             round=self.round_counter,
-            agent_actions=agent_actions,
+            agent_actions=agent_responses,
             agent_bids=agent_bids,
+            agent_bids_normalized=agent_bids_normalized,
+            agent_preferences=agent_job_preference,
             base_rewards=base_task_rewards,
             task_rewards=winning_bid_prices,
             prev_reputation=prev_reputation,
             agent_reputation=deepcopy(self.curr_agent_reputation),
             agent_skills=[agent.skill_level_by_task for agent in self.agents],
-            agent_scores=task_agent_scores,
+            unranked_agent_scores=unranked_agent_scores,
+            reranked_agent_scores=reranked_agent_scores,
             market_preference=market_preferences,
             matched_task_agent=task_matches,
             unmatched_agents=unmatched_agents,
@@ -728,6 +806,7 @@ class LabourMarket:
             rep_initial=self.rep_initial,
             rep_window=self.rep_window,
             rep_sensitivity=self.rep_sensitivity,
+            rep_lambda=self.rep_lambda
         )
 
         exp_log = ExperimentLog(

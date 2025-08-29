@@ -50,15 +50,45 @@ class ExperimentLog(BaseModel):
         with open(filepath, 'r') as f:
             return cls.model_validate_json(f.read())
     
+    def _get_agent_trace_attr(self, attr): 
+        """Helper function for sparse logs"""
+
+        _attr_dict = {}
+
+        for task_id in self.task_ids:
+            task_attr_list = [[] for _ in self.agent_ids]
+            for hx in self.history:
+                round_agent_attr_value = hx.__getattribute__(attr)[task_id]
+                for agent_idx, attr_v in round_agent_attr_value.items():
+                    task_attr_list[agent_idx].append((hx.round, attr_v))
+
+            _attr_dict[task_id] = task_attr_list
+
+        return _attr_dict
+
+
     @property
-    def agent_bids(self) -> Dict[str, List[List[Tuple[int, float]]]]:
-        pass
+    def agent_bids(self) -> Dict[str, List[List[Tuple[int, float]]]]: # task_id: agent_idx 
 
-
+        return self._get_agent_trace_attr('agent_bids')
+    
+    @property
+    def agent_scores(self) -> Dict[str, List[List[Tuple[int, float]]]]: # task_id: agent_idx 
+        
+        return self._get_agent_trace_attr('agent_scores')
+      
 # %%
 filepath = 'logs/oracle_55_t_02.log'
 experiment = ExperimentLog.load(filepath)
 
+# %%
+for agent_idx, agent_trace in enumerate(experiment.agent_scores['cip_a']):
+    agent_trace = np.array(agent_trace)
+    plt.plot(agent_trace[:, 0], agent_trace[:, 1], label=experiment.agent_ids[agent_idx])
+plt.legend()
+
+# %%
+experiment._get_agent_trace_attr('agent_scores')
 # %%
 hx = experiment.history[0]
 # agent bid by task across all agents by trace
@@ -76,8 +106,6 @@ for p, r in experiment.agents[-1].trace:
 # %%
 plt.plot(experiment.reputation_history['cip_c'])
 # %%
-plt.plot([hx.agent_scores['cip_a'] for hx in experiment.history], label=experiment.agent_ids)
-
 # %%
 agent_rewards = np.array([h.agent_round_rewards for h in experiment.history])
 

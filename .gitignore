@@ -174,3 +174,5 @@ evaluation_output/
 hf/
 
 .vscode
+
+ignore/

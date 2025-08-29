@@ -107,7 +107,7 @@ class AgentBase(ABC):
             subagent_model = model
 
         # TODO: Add subagent types here
-        self.subagents = {task.id: CipherAgent(model=subagent_model, task_id=task.id) for task in tasks}
+        self.subagents = {task.id: ProxyAgent(model=subagent_model, task_id=task.id) for task in tasks}
 
         self.skill_history = [self.skill_level_by_task]
         self.agent_history: List[AgentHistory] = []

@@ -76,7 +76,7 @@ R2: task_a@test_agent(0.5) | task_b@10.0→10.0→llm_6(0.5)"""
             {"task_a": 2, "task_b": 7},
             {"task_a": 5, "task_b": 2},
         ],
-        agent_scores={
+        reranked_agent_scores={
             "task_a": {0: 0.5, 1: 0.4, 2: 0.8},
             "task_b": {
                 0: 0.4,
