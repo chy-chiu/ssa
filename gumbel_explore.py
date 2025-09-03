@@ -173,7 +173,7 @@ history = experiment.history[i]
 agent_scores = np.array(list(history.agent_reputation["cip_a"]))
 print(agent_scores.round(2))
 
-history.task_rewards
+history.winning_prices
 
 
 # %%
@@ -430,12 +430,30 @@ bid_vals = np.linspace(0, 1, 100)
 R, B = np.meshgrid(reputation_vals, bid_vals)
 
 # --- Generate Plots ---
+from ssa.market import LabourMarket
 
 fig, ax = plt.subplots(1, 1, figsize=(6, 5))
 
 # score = calculate_utility(B, R, k_rep=10, c_rep=0.7, beta_rep=1, beta_price=1, gamma=0.8)
 _, score = utility_che(B, R, alpha=0.5)
-print(score.max())
+
+def utility_ces(price_norm, rep_norm, k=8.0, w_q=0.6, w_s=0.4, rho=0.0, eta=1.0):
+    """q = g(rep), s = price_norm^{-eta}. CES aggregator with parameter rho. 
+    rho -> 0 yields Cobb–Douglas: U = q^{w_q} * s^{w_s}"""
+
+    sigmoid_rep = 1.0 / (1.0 + np.exp(-k * (rep_norm)))
+
+    q = rep_norm
+    s = price_norm ** (-eta)  # >1 discount, <1 premium
+    if abs(rho) < 1e-8:
+        U = (q**w_q) * (s**w_s)  # Cobb–Douglas
+    else:
+        U = (w_q * (q**rho) + w_s * (s**rho)) ** (1.0 / rho)
+    S = U / (1.0 + U)  # (0,1)
+    return U, S
+
+u, score = utility_ces(B, R, w_q=0.3, w_s=0.7, rho=1)
+print(u.max())
 contour = ax.contourf(B, R, score, levels=500, cmap='nipy_spectral')
 # ax.set_title(f"Linear Model\n{title} (alpha={params['alpha']})", fontsize=16)
 # ax.set_xlabel("Agent Bid (Normalized)")
@@ -446,3 +464,4 @@ ax.set_xlabel("Price (Normalized, lower = better)")
 fig.colorbar(contour, ax=ax, label="Score")
     
 # %%
+

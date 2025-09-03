@@ -15,99 +15,42 @@ from langchain.schema import AIMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 import matplotlib.pyplot as plt
 from loguru import logger
-from ssa.tasks.task import TaskBase, TaskSubAgent, TaskRunner, ProxyAgent, SubAgentLog
+from ssa.tasks.task import TaskBase, TaskSubAgent, TaskRunner, ProxyAgent
+from ssa.common import Job, JobHistory, AgentHistory, AgentPerformance, AgentActionResponse, MarketInfo, AgentLog, SubAgentLog
 
 from ssa.tasks.cipher import CipherAgent
 
 
-class MarketInfo(BaseModel):
-    """Data class for market to provide info for agent to action on decisions each round"""
-
-    round: int
-    history: str
-    listings: Dict[str, float]  # task_id, budget
-    info: Dict[str, Any] = {}
-
-
-class TaskActionResponse(BaseModel):
-    """Data class for agent response"""
-
-    reasoning: str = Field(description="Your strategic reasoning for this choice")
-    action: Literal["bid", "train", "error"] = Field(
-        description="Your action for this round. You can either bid for jobs ('bid') or train skills ('train')"
-    )
-    targets: List[Tuple] = Field(
-        description="Your task preferences from highest to lowest priority. For bidding: [[task_id_1, price_1], [task_id_2, price_2], ...]. For training: [[task_id, -1]] with only one task."
-    )
-
-    def format(self):
-        if self.action == "bid":
-            target_str = f"BID: {self.targets}"
-        else:
-            task_id = self.targets[0][0] if self.targets else "None"
-            target_str = f"TRAIN: {task_id}"
-
-        return f"\nREASONING: {self.reasoning}\nACTION: {self.action.upper()}\n{target_str}"
-
-
-class AgentHistory(BaseModel):
-    """API dataclass for market to return info to each agent per round"""
-
-    round: int
-    allocated: Optional[str] = None
-    agent_action: TaskActionResponse
-    listings: Dict[str, float]
-    agent_bid_price: Optional[float] = -1
-    adjusted_reward: Optional[float] = -1
-    agent_performance: Optional[float] = -1
-    reputation: Optional[float] = -1
-
-
-class AgentLog(BaseModel):
-
-    id: str
-    idx: int = -1
-    type: str = ""
-    agent_history: List[AgentHistory]
-    agent_history_str: List[str]
-    market_history: List[MarketInfo]
-    skill_history: Dict[str, List[float]]
-    reputation: Dict[str, Tuple[int, float, float]]
-    total_reward: float
-    trace: List[Tuple[str, TaskActionResponse]]
-    token_usage: Dict[str, Any]
-    subagents: Dict[str, SubAgentLog]
-    
-    class Config:
-        arbitrary_types_allowed = True
-        
-    def __repr__(self):
-        cls = self.__class__.__name__
-        
-        return f"{cls}(id={self.id}, total_reward={self.total_reward:.3f})"
-
 class AgentBase(ABC):
 
-    trace: List[Tuple[str, TaskActionResponse]]
-    token_usage: List[Dict]
-    
+    trace: List[Tuple[str, AgentActionResponse]] = []
+    token_usage: List[Dict] = []
+
     idx: int = -1
     type: str = ""
     agent_ids: List[str] = []
 
     """Abstract class for all agents"""
 
-    def __init__(self, agent_id: str, tasks: List[TaskBase], model: ChatOpenAI = None, subagent_model: ChatOpenAI = None, verbose=True):
+    def __init__(
+        self, agent_id: str, jobs: List[Job], model: ChatOpenAI = None, subagent_model: ChatOpenAI = None, verbose=True
+    ):
 
         self.id = str(agent_id)
-        self.n_tasks = len(tasks)
-        self.task_ids = [task.id for task in tasks]
-        self.model = model or init_azure_model()
+
+        self.jobs = jobs
+        self.job_ids = [j.id for j in jobs]
+        self.n_jobs = len(jobs)
+
+        self.task_ids = list(set([j.task_id for j in jobs]))
+        self.n_tasks = len(self.task_ids)
+
+        self.model = model  #  or init_azure_model()
         if subagent_model is None:
             subagent_model = model
 
         # TODO: Add subagent types here
-        self.subagents = {task.id: ProxyAgent(model=subagent_model, task_id=task.id) for task in tasks}
+        self.subagents = {task_id: ProxyAgent(model=subagent_model, task_id=task_id) for task_id in self.task_ids}
 
         self.skill_history = [self.skill_level_by_task]
         self.agent_history: List[AgentHistory] = []
@@ -117,33 +60,32 @@ class AgentBase(ABC):
             task_id: (0, 0.5, 0.0) for task_id in self.task_ids
         }  # round, reputation float, delta from previous round
         self.total_reward = 0
+        self.verbose = verbose
 
     @property
     def skill_level_by_task(self) -> Dict[str, int]:
         return {task_id: subagent.skill_level for task_id, subagent in self.subagents.items()}
 
     @abstractmethod
-    def get_agent_action(self, market_info: MarketInfo) -> TaskActionResponse:
+    def get_agent_action(self, market_info: MarketInfo) -> AgentActionResponse:
         pass
 
     def receive_response(self, agent_history: AgentHistory):
         self.agent_history.append(agent_history)
 
-        if agent_history.adjusted_reward >= 0:
-            self.total_reward += agent_history.adjusted_reward
+        if agent_history.total_reward >= 0:
+            self.total_reward += agent_history.total_reward
 
-        allocated_task_id = agent_history.allocated
-        
         self.skill_history.append(self.skill_level_by_task)
 
-        new_reputation = agent_history.reputation
+        reputation_updates = agent_history.reputation_update
 
-        if allocated_task_id and (new_reputation > 0):
-            _, old_reputation, _ = self.reputation[allocated_task_id]
+        for task_id, new_reputation in reputation_updates.items():
+            _, old_reputation, _ = self.reputation[task_id]
             reputation_delta = new_reputation - old_reputation
-            self.reputation[allocated_task_id] = (agent_history.round, new_reputation, reputation_delta)
-
+            self.reputation[task_id] = (agent_history.round, new_reputation, reputation_delta)
         self.agent_history_str.append(self.format_agent_action_hx(agent_history))
+
 
     def get_skill_history(self, task_id: str):
         return [hx[task_id] for hx in self.skill_history]
@@ -152,43 +94,71 @@ class AgentBase(ABC):
     def full_skill_history(self):
         return {task_id: self.get_skill_history(task_id) for task_id in self.task_ids}
 
-    @property
-    def reward_history(self):
-        return np.array([hx.agent_performance for hx in self.agent_history])
-
-    @property
-    def allocation_history(self):
-        return np.array([hx.allocated for hx in self.agent_history])
-
-    def format_agent_action_hx(self, round_info: AgentHistory):
+    def format_agent_action_hx(self, round_info: AgentHistory) -> str:
+        """Format agent history for multiple job allocations"""
         action = round_info.agent_action
         round_num = round_info.round
 
         if action.action == "bid":
-            # Format bids as task_a@10.0,9.5 (base@bid)
-            bids = []
-            for task_id, bid_price in action.targets:
-                base_price = round_info.listings.get(task_id, 0)  # You'll need to pass this
-                bids.append(f"{task_id}@{base_price}:{bid_price}")
-            bid_str = ", ".join(bids)
+            won_jobs = round_info.allocated_jobs
+            lost_jobs = round_info.unallocated_jobs
 
-            if round_info.adjusted_reward >= 0:
-                # Won a job
-                task = round_info.allocated
-                _, new_rep, rep_delta = self.reputation[task]
-                perf = round_info.agent_performance * 10
-                reward = round_info.adjusted_reward
+            # Build the response string
+            parts = [f"R{round_num}: BID"]
 
-                return f"R{round_num}: BID {bid_str} → WON {task}: P: {perf:.1f}/10 R: ${reward:.2f} REP: {new_rep-rep_delta:.2f}→{new_rep:.2f})"
+            # Show wins
+            if won_jobs:
+                win_details = []
+                for job_result in won_jobs:
+                    # Get reputation info for this skill
+                    task_id = job_result.task_id
+                    if task_id in self.reputation:
+                        _, new_rep, rep_delta = self.reputation[task_id]
+                        rep_str = f"Rp={new_rep-rep_delta:.2f}"
+                    else:
+                        rep_str = ""
 
-            else:
-                # Lost all bids - auto-trained
-                auto_train_task = round_info.allocated  # The task they auto-trained in
-                return f"R{round_num}: BID {bid_str} → LOST: Trained {auto_train_task}"
+                    # Format: job_id(skill, P:8.5/10, $8.10)
+                    win_details.append(
+                        f"{job_result.job_id}@({job_result.bid_price}, {rep_str})→"
+                        # f"P:{job_result.performance*10:.1f}/10, "
+                        f"${job_result.adjusted_reward:.2f})"
+                    )
+                parts.append(f"WIN {', '.join(win_details)}")
+
+            # Show losses
+            if lost_jobs:
+
+                parts.append(f"LOST {', '.join(lost_jobs)}")
+
+            # Show total reward if any
+            if round_info.total_reward > 0:
+                parts.append(f"TOTAL ${round_info.total_reward:.2f}")
+
+            # Show reputation changes summary
+            if round_info.reputation_update:
+                rep_changes = []
+                for task_id, new_rep in round_info.reputation_update.items():
+                    if task_id in self.reputation:
+                        _, _, rep_delta = self.reputation[task_id]
+                        if rep_delta != 0:
+                            direction = "↑" if rep_delta > 0 else "↓"
+                            rep_changes.append(f"{task_id}{direction}{abs(rep_delta):.2f}")
+                if rep_changes:
+                    parts.append(f"REP {', '.join(rep_changes)}")
+
+            # Show auto-training if no jobs won
+            if not won_jobs and round_info.training_performed:
+                trained_tasks = ", ".join(round_info.training_performed)
+                parts.append(f"TRAIN {trained_tasks}")
+
+            return " - ".join(parts)
 
         elif action.action == "train":
-            task = round_info.allocated
-            return f"R{round_num}: TRAIN {task}"
+            return f"R{round_num}: TRAIN {round_info.training_performed}"
+
+        else:
+            return f"R{round_num}: {action.action.upper()}"
 
     def get_round_info_str(self, n_steps=10):
         history_lines = self.agent_history_str[-n_steps:]
@@ -260,8 +230,8 @@ def plot_agent_history(agent: AgentBase):
 class StaticAgent(AgentBase):
     """Static, mock agent to test things with"""
 
-    def __init__(self, agent_id: int, tasks: List[TaskBase], model: ChatOpenAI = None, verbose=True):
-        super().__init__(agent_id=agent_id, tasks=tasks, model=model, verbose=verbose)
+    def __init__(self, agent_id: int, jobs: List[TaskBase], model: ChatOpenAI = None, verbose=True):
+        super().__init__(agent_id=agent_id, jobs=jobs, model=model, verbose=verbose)
         self.preferences = None
         self.token_usage = []
         self.trace = []
@@ -269,10 +239,15 @@ class StaticAgent(AgentBase):
     def get_agent_action(self, market_info: MarketInfo) -> Tuple[Literal["bid", "invest"], List[Tuple[str, float]]]:
         """Return pre-defined prefs, otherwise random preferences by default"""
 
-        if not self.preferences:
-            self.preferences = [self.task_ids[i] for i in np.random.permutation(self.n_tasks)]
+        if self.verbose:
+            print(market_info.history)
 
-        response = TaskActionResponse(reasoning="", action="bid", targets=[(p, 10) for p in self.preferences])
+        if not self.preferences:
+            self.preferences = [self.job_ids[i] for i in np.random.permutation(self.n_jobs)]
+
+        response = AgentActionResponse(
+            reasoning="", action="bid", targets=[(p, 10 + np.random.normal(0, 1)) for p in self.preferences]
+        )
 
         return response
 
@@ -280,18 +255,23 @@ class StaticAgent(AgentBase):
 class ImproveAgent(AgentBase):
     """Static, mock agent to test things with"""
 
-    def __init__(self, agent_id: int, tasks: List[TaskBase], model=None, verbose=True):
-        super().__init__(agent_id=agent_id, tasks=tasks, model=model, verbose=verbose)
+    def __init__(self, agent_id: int, jobs: List[Job], model=None, verbose=True):
+        super().__init__(agent_id=agent_id, jobs=jobs, model=model, verbose=verbose)
         self.preferences = None
 
     def get_agent_action(self, market_info: MarketInfo):
         """Return pre-defined prefs, otherwise random preferences by default"""
 
         action = np.random.choice(["bid", "train"], p=(0.8, 0.2))
-        if not self.preferences:
-            self.preferences = [self.task_ids[i] for i in np.random.permutation(self.n_tasks)]
+        if self.preferences:
+            preferences = self.preferences["action"]
+        else:
+            if action == "train":
+                preferences = [self.task_ids[i] for i in np.random.permutation(self.n_tasks)]
+            if action == "bid":
+                preferences = [self.job_ids[i] for i in np.random.permutation(self.n_jobs)]
 
-        response = TaskActionResponse(reasoning="", action=action, targets=[(p, 10) for p in self.preferences])
+        response = AgentActionResponse(reasoning="", action=action, targets=[(p, 10) for p in preferences])
 
         return response
 

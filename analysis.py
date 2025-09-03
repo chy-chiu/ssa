@@ -7,7 +7,7 @@ from ssa.tasks.task import TaskRunner, TaskBase, ProxyAgent, ProxyTask
 from copy import deepcopy
 from ssa.agents import (
     AgentHistory,
-    TaskActionResponse,
+    AgentActionResponse,
     AgentBase,
     MarketInfo,
     StaticAgent,

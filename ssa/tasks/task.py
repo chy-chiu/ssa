@@ -5,7 +5,7 @@ from typing import List, Any, Tuple, Dict, Optional
 from pydantic import BaseModel
 import numpy as np
 from loguru import logger
-
+from ssa.common import AgentLog, SubAgentLog
 
 class Question(BaseModel):
     question_text: str
@@ -43,14 +43,6 @@ class TaskBase(ABC):
         pass
 
 
-class SubAgentLog(BaseModel):
-
-    knowledge_base: Dict[str, str]
-    token_usage: Dict[str, Any]
-    trace: List[Tuple[str, str]]
-    
-    class Config:
-        arbitrary_types_allowed = True
 
 class TaskSubAgent(ABC):
     """Subagent class to handle specific tasks"""
@@ -159,6 +151,7 @@ class ProxyAgent(TaskSubAgent):
         self._skill_level = 0.25
 
     def probe_task(self, question):
+        return self._skill_level
         return np.clip(self._skill_level * (1 + np.random.normal(0, 0.1)), 0, 1)
 
     def update_knowledge_base(self, feedback_info):

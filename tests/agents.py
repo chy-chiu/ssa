@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 import matplotlib.pyplot as plt
 from loguru import logger
 from ssa.tasks.task import TaskBase, ProxyTask
-from ssa.agents.agent import AgentBase, TaskActionResponse, MarketInfo
+from ssa.agents.agent import AgentBase, AgentActionResponse, MarketInfo
 from ssa.agents.llm import LLMAgent
 from ssa.agents.oracle import OracleAgent
 from ssa.market import RoundData
@@ -43,24 +43,24 @@ R2: task_a@test_agent(0.5) | task_b@10.0→10.0→llm_6(0.5)"""
     round_history = RoundData(
         round=2,
         agent_actions=[
-            TaskActionResponse(
+            AgentActionResponse(
                 reasoning="",
                 action="bid",
                 targets=[("task_a", 9.0), ("task_b", 9.0)],
             ),
-            TaskActionResponse(
+            AgentActionResponse(
                 reasoning="",
                 action="bid",
                 targets=[("task_b", 7.5), ("task_a", 7.5)],
             ),
-            TaskActionResponse(
+            AgentActionResponse(
                 reasoning="",
                 action="bid",
                 targets=[("task_a", 9.5), ("task_b", 9.5)],
             ),
         ],
-        base_rewards={"task_a": 10.0, "task_b": 10.0, "task_c": 10.0},
-        task_rewards={"task_a": 9.0, "task_b": 9.0, "task_c": 9.5},
+        base_prices={"task_a": 10.0, "task_b": 10.0, "task_c": 10.0},
+        winning_prices={"task_a": 9.0, "task_b": 9.0, "task_c": 9.5},
         prev_reputation={
             "task_a": [0.5, 0.3, 0.5,],
             "task_b": [0.5, 0.5, 0.5,],

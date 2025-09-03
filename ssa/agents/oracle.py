@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 import matplotlib.pyplot as plt
 from loguru import logger
 from ssa.tasks.task import TaskBase, ProxyTask
-from ssa.agents.agent import AgentBase, TaskActionResponse, MarketInfo
+from ssa.agents.agent import AgentBase, AgentActionResponse, MarketInfo
 from ssa.agents.llm import LLMAgent
 
 ORACLE_BASE = """You are {agent_id}, a strategic agent competing in an AI labor market simulation over 100 rounds to maximize total reward.
