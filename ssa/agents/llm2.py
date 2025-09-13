@@ -43,10 +43,9 @@ ACTIONS (choose one per round):
 
 INFORMATION PROVIDED EACH ROUND:
 1. **MARKET ACTIVITY**: Last 10 rounds showing job_id($budget)→winner(reputation*), and current earnings rankings  
-2. **RECENT ACTIONS**: Your recent actions with outcomes, including income and reputation change
+2. **RECENT REASONING/ACTION/OUTCOME**: Your recent reasoning and actions with outcomes, including income and reputation change
    - Action format: "job_id@(your_bid/posted_budget|your_reputation*)→($reward|TRAIN|LOST)"
-3. **PREVIOUS REASONING**: Your reasoning from previous turn
-4. **LISTINGS**: Available jobs this round: "skill_id: job_id@budget, job_id@budget, ..."
+3. **LISTINGS**: Available jobs this round: "skill_id: job_id@budget, job_id@budget, ..."
 
 OUTPUT STRUCTURE:
 1. REASONING: Your reasoning for your actions this round
@@ -65,9 +64,6 @@ MARKET ACTIVITY:
 RECENT ACTIONS:
 {agent_history}
 
-PREVIOUS REASONING
-{previous_thought}
-
 LISTINGS:
 {listings}
 """
@@ -76,7 +72,7 @@ INSTRUCTION = "\nChoose to either bid for jobs or train skills based on your str
 
 TOKENS_TO_SANITIZE = ["<think>", "\\"]
 
-class LLMAgent(AgentBase):
+class LLM2Agent(AgentBase):
     """A LLM-based agent to interact with an environment. Has a latent skill vector that is not exposed to the model during LLM calls"""
 
     def __init__(
@@ -187,20 +183,6 @@ class LLMAgent(AgentBase):
 
         return agent_action
     
-    def get_round_info_str(self, n_steps=10):
-        history_lines = self.agent_history_str[-n_steps:]
-        traces = self.trace[-n_steps:]
-
-        agent_hx = self.agent_history[-n_steps:]
-        
-        # Add current reputation summary
-        rep_summary = "\n>> REPUTATION - " + ", ".join(
-            [f"{task_id}: {self.reputation[task_id][1] * REP_MUL:.1f}*" for task_id in self.task_ids]
-        )
-
-        return "\n".join(history_lines) + f"\n{rep_summary}"
-
-
     def format_agent_action_hx(self, round_info: AgentHistory) -> str:
         """Format agent history for multiple job allocations"""
         agent_action = round_info.agent_action
@@ -208,7 +190,7 @@ class LLMAgent(AgentBase):
 
         if agent_action.action == "bid":
 
-            agent_action_str = f"R{round_num}: BID "
+            agent_action_str = f"BID "
             
             won_jobs = {job.job_id: job for job in round_info.allocated_jobs}
             lost_jobs = {job.job_id: job for job in round_info.unallocated_jobs}
@@ -274,17 +256,35 @@ class LLMAgent(AgentBase):
                 new_rep = 0
                 rep_delta = 0
 
-            return f"R{round_num}: TRAIN {task_id}, REP {(new_rep - rep_delta) * REP_MUL:.1f}*→{(new_rep) * REP_MUL:.1f}*"
+            return f"TRAIN {task_id}, REP {(new_rep - rep_delta) * REP_MUL:.1f}*→{(new_rep) * REP_MUL:.1f}*"
 
         else:
-            return f"R{round_num}: {agent_action.action.upper()}"
+            return f"{agent_action.action.upper()}"
+    
+    def get_round_info_str(self, n_steps=10):
+        history_lines = self.agent_history_str[-n_steps:]
+        traces = self.trace[-n_steps:]
+
+        agent_hx = self.agent_history[-n_steps:]
+
+        full_hx_lines = []
+
+        for hx_line, trace, hx in zip(history_lines, traces, agent_hx):
+            full_hx_lines.append(f"R{hx.round} - REASONING: {trace[-1].reasoning}\nACTION: {hx_line}")
+
+        # Add current reputation summary
+        rep_summary = "\n>> REPUTATION - " + ", ".join(
+            [f"{task_id}: {self.reputation[task_id][1] * REP_MUL:.1f}*" for task_id in self.task_ids]
+        )
+
+        return "\n".join(full_hx_lines) + f"\n{rep_summary}"
 
 
 def test_agent():
 
     model = init_azure_model()
     tasks = [ProxyTask(task_id="task_a"), ProxyTask(task_id="task_b")]
-    agent = LLMAgent(agent_id="test_agent", tasks=tasks, model=model, verbose=True)
+    agent = LLM2Agent(agent_id="test_agent", tasks=tasks, model=model, verbose=True)
 
     test_history_str = """R1: task_a@10.0→llm_1(0.5) | task_b@10.0→llm_5(0.5)
 R2: task_a@test_agent(0.5) | task_b@10.0→10.0→llm_6(0.5)"""

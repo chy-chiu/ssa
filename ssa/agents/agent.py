@@ -103,88 +103,9 @@ class AgentBase(ABC):
         _, new_rep, rep_delta = self.reputation[task_id]
         return round((new_rep-rep_delta) * REP_MUL, 1)
                 
-
-    def format_agent_action_hx(self, round_info: AgentHistory) -> str:
-        """Format agent history for multiple job allocations"""
-        agent_action = round_info.agent_action
-        round_num = round_info.round
-
-        agent_action_str = f"R{round_num}: "
-
-        if agent_action.action == "bid":
-
-            agent_action_str += "BID "
-            
-            won_jobs = {job.job_id: job for job in round_info.allocated_jobs}
-            lost_jobs = {job.job_id: job for job in round_info.unallocated_jobs}
-
-            # Build the response string
-            parts = []
-
-            for target, _ in agent_action.targets:
-                try:
-                    if target in won_jobs:
-                        job_result = won_jobs[target]
-                        result_str = f"${job_result.adjusted_reward:.2f}"
-                    elif target in lost_jobs:
-                        task_id = self.job_to_task_id[target]
-                        job_result = lost_jobs[target]
-                        if round_info.training_performed == task_id:
-                            result_str = f"TRAIN {task_id}"
-                        else:
-                            result_str = "LOST"
-                    else:
-                        job_result = None
-                except Exception as e:
-                    job_result = None
-
-                if job_result:
-                    task_id = job_result.task_id
-
-                    prev_reputation = self.get_prev_reputation(task_id)
-                    parts.append(
-                        f"{job_result.job_id}@(${job_result.bid_price}/{job_result.base_price}|{prev_reputation}*)→" + result_str
-                    )
-                else:
-                    parts.append(
-                        f"{target}→ERROR"
-                    )
-
-            # Show total reward if any
-            if round_info.total_reward > 0:
-                parts.append(f"TOTAL INCOME ${round_info.total_reward:.2f}")
-            else:
-                parts.append(f"NO INCOME")
-
-            # Show reputation changes summary
-            if round_info.reputation_update:
-                rep_changes = []
-                for task_id, new_rep in round_info.reputation_update.items():
-                    if task_id in self.reputation:
-                        _, _, rep_delta = self.reputation[task_id]
-                        if abs(rep_delta) >= 0.01:
-                            direction = "↑" if rep_delta > 0 else "↓"
-                            rep_changes.append(f"{task_id}{direction}{abs(rep_delta * REP_MUL):.1f}*")
-                if rep_changes:
-                    parts.append(f"REP {', '.join(rep_changes)}")
-                
-            return agent_action_str + ", ".join(parts)
-
-        elif agent_action.action == "train":
-            agent_action_str += "TRAIN: "
-            
-            task_id = round_info.training_performed
     
-            if task_id: 
-                _, new_rep, rep_delta = self.reputation[task_id]
-            else:
-                new_rep = 0
-                rep_delta = 0
-
-            return f"R{round_num}: TRAIN {task_id}, REP {(new_rep - rep_delta) * REP_MUL:.1f}*→{(new_rep) * REP_MUL:.1f}*"
-
-        else:
-            return f"R{round_num}: {agent_action.action.upper()}"
+    def format_agent_action_hx(self, round_info: AgentHistory) -> str:
+        return ""
         
     
     def get_market_history_str(self, history: List[RoundData]) -> str:
@@ -224,14 +145,7 @@ class AgentBase(ABC):
         return "\n".join(lines) + "\n\n>> LEADERBOARD - " + reward_sorted
 
     def get_round_info_str(self, n_steps=10):
-        history_lines = self.agent_history_str[-n_steps:]
-
-        # Add current reputation summary
-        rep_summary = "\n>> REPUTATION - " + ", ".join(
-            [f"{task_id}: {self.reputation[task_id][1] * REP_MUL:.1f}*" for task_id in self.task_ids]
-        )
-
-        return "\n".join(history_lines) + f"\n{rep_summary}"
+        pass
 
     def get_token_usage(self):
         self_token_usage = dict(

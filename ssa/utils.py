@@ -1,5 +1,3 @@
-# %%
-
 from langchain_openai import ChatOpenAI, AzureChatOpenAI
 import yaml
 from openai import OpenAI
@@ -180,24 +178,19 @@ class OpenAIClient:
 
         reasoning = {"effort": self.effort}
 
-        response = self.client.chat.completions.create(model=self.model_name, messages=convert_to_openai_messages(messages), reasoning_effort=self.effort)
+        response = self.client.chat.completions.create(
+            model=self.model_name, messages=convert_to_openai_messages(messages), reasoning_effort=self.effort
+        )
         message = response.choices[0].message
         content = message.content
         llm_reasoning = message.model_dump().get("reasoning")
-        token_usage = response.usage
+        token_usage = response.usage.model_dump()
 
         return LangChainResponse(
             content=content, response_metadata=dict(token_usage=token_usage, llm_reasoning=llm_reasoning)
-        ), response
+        )
 
 
 def format_dict_str(_dict):
     # print(_dict)
     return "[" + ", ".join(f"{k}: {_dict[k]}" for k in sorted(_dict)) + "]"
-
-
-from openai import OpenAI
-# %%
-client = OpenAIClient(model_name="gpt-5-cc", secrets_path='assets/secrets.yaml', effort='high')
-client.invoke(["test"])
-# %%

@@ -1,4 +1,3 @@
-# %%
 import numpy as np
 from typing import List, Dict, Optional, Tuple, Set, Any, Literal
 import pandas as pd
@@ -159,56 +158,121 @@ class LabourMarket:
             agent_performances.append(
                 {job_id: performance for job_id, (_, performance) in job_agent_performance.items()}
             )
-
+        
+        # Collect all initial reputation updates to be processed in a single batch
+        updates_to_make = []
         for job_id in self.job_ids:
-
+            task_id = self.job_to_task_id[job_id]
             for agent_idx, _ in enumerate(self.agents):
-                agent_performance = agent_performances[agent_idx][job_id]
-                task_id = self.job_to_task_id[job_id]
-                initial_rep = self.update_reputation(agent_idx, task_id, agent_performance)
-                self.agents[agent_idx].reputation[task_id] = (0, initial_rep, 0)
+                performance = agent_performances[agent_idx][job_id]
+                updates_to_make.append(
+                    {"agent_idx": agent_idx, "task_id": task_id, "performance": performance}
+                )
 
-    def update_reputation(self, agent_idx: int, task_id: str, agent_performance: float) -> float:
-        """Updates agent reputation for a specific task"""
+        # Perform the batch update
+        if updates_to_make:
+            df = pd.DataFrame(updates_to_make)
+            self.update_reputation(
+                df['agent_idx'].tolist(), df['task_id'].tolist(), df['performance'].tolist()
+            )
+        
+        # Set the initial reputation on the agent objects
+        for agent_idx, agent in enumerate(self.agents):
+            for task_id in self.task_ids:
+                initial_rep = self.curr_agent_reputation[task_id][agent_idx]
+                agent.reputation[task_id] = (0, initial_rep, 0)
 
-        community_performance_history = np.array([v.performance for v in self.get_job_performance(task_id=task_id)])
-        agent_performance_history = np.array(
-            [v.performance for v in self.get_job_performance(task_id=task_id, agent_idx=agent_idx)]
+
+    def update_reputation(
+        self, agent_idx: List[int], task_id: List[str], agent_performance: List[float]
+    ) -> List[float]:
+        """Updates agent reputation for specific tasks in a batch, using vectorized operations."""
+
+        if not agent_idx:
+            return []
+
+        # 1. Create a DataFrame from the input updates. This will be our main working DF.
+        updates_df = pd.DataFrame(
+            {
+                "agent_idx": agent_idx,
+                "task_id": task_id,
+                "new_performance": agent_performance,
+                "original_order": np.arange(len(agent_idx)),  # To restore order at the end
+            }
         )
 
-        community_baseline_performance = (
-            np.mean(community_performance_history[-self.rep_window :])
-            if len(community_performance_history) > 0
-            else self.rep_initial
-        )
+        grouped_updates = updates_df.groupby(['agent_idx', 'task_id']).agg(
+            new_performance=('new_performance', 'mean')
+        ).reset_index()
 
-        # accumulate agent evidence r,s with forgetting (Eq. 12/13 style recursion)
-        if agent_performance_history is not None and len(agent_performance_history) > 0:
-            r = np.sum(
-                agent_performance_history
-                * np.array([self.rep_lambda**i for i, _ in enumerate(agent_performance_history)][::-1])
-            )
-            s = np.sum(
-                (1 - agent_performance_history)
-                * np.array([self.rep_lambda**i for i, _ in enumerate(agent_performance_history)][::-1])
-            )
+        # 2. Prepare historical performance data using the unique agent-task pairs.
+        if not self.job_performance:
+            history_df = pd.DataFrame(columns=["agent_idx", "task_id", "performance"])
         else:
-            r = 0.0
-            s = 0.0
+            relevant_tasks = set(grouped_updates["task_id"].unique())
+            history_data = [p.model_dump() for p in self.job_performance if p.task_id in relevant_tasks]
+            if not history_data:
+                history_df = pd.DataFrame(columns=["agent_idx", "task_id", "performance"])
+            else:
+                history_df = pd.DataFrame(history_data)[["agent_idx", "task_id", "performance"]]
 
-        # incorporate the new performance (one more recursive step)
-        r = self.rep_lambda * r + agent_performance
-        s = self.rep_lambda * s + (1.0 - agent_performance)
+        # 3. Calculate community baseline performance for each relevant task.
+        if not history_df.empty:
+            community_baselines = (
+                history_df.groupby("task_id")["performance"]
+                .apply(lambda x: x.tail(self.rep_window).mean())
+                .rename("community_baseline")
+            )
+            grouped_updates = pd.merge(grouped_updates, community_baselines, on="task_id", how="left")
 
-        # expectation with base-rate prior (subjective-logic form)
-        rep = (r + self.rep_sensitivity * community_baseline_performance) / (r + s + self.rep_sensitivity)
+        grouped_updates["community_baseline"] = grouped_updates.get("community_baseline", pd.Series(dtype=float)).fillna(
+            self.rep_initial
+        )
 
-        new_reputation = np.clip(rep, 0, 1)
+        # 4. Calculate historical r and s for each (agent_idx, task_id) pair.
+        if not history_df.empty:
+            group_size = history_df.groupby(["agent_idx", "task_id"])["performance"].transform("size")
+            group_rank = history_df.groupby(["agent_idx", "task_id"]).cumcount()
+            exponent = group_size - 1 - group_rank
+            weights = self.rep_lambda**exponent
+            history_df["r_contrib"] = history_df["performance"] * weights
+            history_df["s_contrib"] = (1 - history_df["performance"]) * weights
+            historical_r_s = (
+                history_df.groupby(["agent_idx", "task_id"])[["r_contrib", "s_contrib"]]
+                .sum()
+                .rename(columns={"r_contrib": "r_hist", "s_contrib": "s_hist"})
+            )
+            grouped_updates = pd.merge(grouped_updates, historical_r_s, on=["agent_idx", "task_id"], how="left")
 
-        self.curr_agent_reputation[task_id][agent_idx] = new_reputation
+        grouped_updates["r_hist"] = grouped_updates.get("r_hist", pd.Series(dtype=float)).fillna(0.0)
+        grouped_updates["s_hist"] = grouped_updates.get("s_hist", pd.Series(dtype=float)).fillna(0.0)
 
-        return new_reputation
+        # 5. Apply the update step and calculate new reputation (fully vectorized on unique pairs).
+        r_new = self.rep_lambda * grouped_updates["r_hist"] + grouped_updates["new_performance"]
+        s_new = self.rep_lambda * grouped_updates["s_hist"] + (1.0 - grouped_updates["new_performance"])
+        numerator = r_new + self.rep_sensitivity * grouped_updates["community_baseline"]
+        denominator = r_new + s_new + self.rep_sensitivity
+        grouped_updates["reputation"] = (numerator / denominator).clip(0, 1)
 
+        # 6. Update the central reputation state `self.curr_agent_reputation` using the unique updates.
+        # This is more efficient and prevents overwriting.
+        for _, row in grouped_updates.iterrows():
+            self.curr_agent_reputation[row["task_id"]][int(row["agent_idx"])] = row["reputation"]
+
+        # 7. Merge the final reputation back to the original df to restore original order and length.
+        # This ensures the function output matches the input length, broadcasting the calculated
+        # reputation to all original duplicate entries.
+        final_df = pd.merge(
+            updates_df.drop(columns=['new_performance']),
+            grouped_updates[['agent_idx', 'task_id', 'reputation']],
+            on=['agent_idx', 'task_id'],
+            how='left'
+        )
+
+        # 8. Return the list of new reputations in the original input order.
+        final_df = final_df.sort_values("original_order")
+        return final_df["reputation"].tolist()
+    
     @staticmethod
     def utility_che(agent_reputation, agent_bid, alpha=0.5):
         """Derive agent fitness from a linear model, and move the score to logit space with exponential decay"""
@@ -268,7 +332,7 @@ class LabourMarket:
         """Generate job payments from job definitions"""
         listings_by_task = {task_id: {} for task_id in self.task_ids}
 
-        listings_by_job = {job_id: job.base_reward for job_id, job in self.jobs.items() if job.get_base_reward() >= 0}
+        listings_by_job = {job.id: job.base_reward for job_id, job in self.jobs.items() if job.get_base_reward() >= 0}
 
         for job_id in listings_by_job.keys():
             task_id = self.job_to_task_id[job_id]
@@ -277,49 +341,69 @@ class LabourMarket:
         return listings_by_task, listings_by_job
 
     def generate_market_preference(
-        self, listings_by_job, agent_pricing: List[Dict[str, float]]
-    ) -> Tuple[Dict[str, List[int]]]:
-        """Create preference rankings for all JOBS based on agent pricing"""
+        self, listings_by_job: Dict[str, float], agent_pricing: List[Dict[str, float]]
+    ) -> Tuple[Dict[str, List[int]], Dict[str, Dict[int, float]], Dict[str, Dict[int, float]]]:
+        """
+        Create preference rankings for all JOBS based on agent pricing (vectorized version).
+        """
+        # 1. Reshape the data from List[Dict] to a long-form DataFrame
+        # This is the most critical step for vectorization.
+        bids = []
+        for agent_idx, agent_bids in enumerate(agent_pricing):
+            for job_id, price in agent_bids.items():
+                # Only consider bids for jobs that are actually listed
+                if job_id in listings_by_job:
+                    bids.append((job_id, agent_idx, price))
 
-        job_prefs: Dict[str, List[int]] = {}  # job_id -> ordered agent indices
+        if not bids:  # Handle case with no valid bids
+            # Return empty structures matching the output signature
+            job_ids = list(listings_by_job.keys())
+            empty_prefs = {job_id: [] for job_id in job_ids}
+            return empty_prefs, {}, {}
+
+        bids_df = pd.DataFrame(bids, columns=['job_id', 'agent_idx', 'price'])
+
+        # 2. Enrich the DataFrame with task_id and reputation
+        # Map job_id to task_id
+        job_to_task_map = {job_id: job.task_id for job_id, job in self.jobs.items()}
+        bids_df['task_id'] = bids_df['job_id'].map(job_to_task_map)
+
+        # Get agent reputations. This is a bit more complex.
+        # We can apply a function that looks up reputation based on task_id and agent_idx
+        def get_reputation(row):
+            return self.curr_agent_reputation[row['task_id']][row['agent_idx']]
+
+        bids_df['reputation'] = bids_df.apply(get_reputation, axis=1)
+
+        # 3. Group by job_id and apply the ranking logic
+        job_prefs: Dict[str, List[int]] = {}
         unranked_agent_scores: Dict[str, Dict[int, float]] = {}
         reranked_agent_scores: Dict[str, Dict[int, float]] = {}
 
+        # The groupby operation replaces the outer 'for job_id in ...' loop
+        for job_id, group in bids_df.groupby('job_id'):
+            # 'group' is a DataFrame containing all bids for the current job_id
+            # The inner 'for agent_idx in ...' loop is replaced by accessing columns
+            agents_bidding = group['agent_idx'].values
+            bidding_agent_reputation = group['reputation'].values
+            bidding_agent_price = group['price'].values
+
+            # Apply your existing logic on the NumPy arrays
+            unranked_scores = self.utility_ces(bidding_agent_reputation, bidding_agent_price)
+            reranked_scores, job_ranking_indices = self.gumbel_rerank(unranked_scores, t=self.gumbel_t)
+
+            # Use the sorted indices to get the top agent IDs
+            sorted_agent_ids = agents_bidding[job_ranking_indices]
+            job_prefs[job_id] = sorted_agent_ids[:self.market_pref_limit].tolist()
+
+            # Reconstruct the score dictionaries
+            unranked_agent_scores[job_id] = dict(zip(agents_bidding.tolist(), unranked_scores.tolist()))
+            reranked_agent_scores[job_id] = dict(zip(agents_bidding.tolist(), reranked_scores.tolist()))
+        
+        # Ensure all jobs from the input list are in the output, even if they had no bids
         for job_id in listings_by_job:
-            job = self.jobs[job_id]
-            task_id = job.task_id  # Get the skill type for this job
-
-            agents_bidding = []
-            bidding_agent_price = []
-            bidding_agent_reputation = []
-
-            for agent_idx, agent_job_price in enumerate(agent_pricing):
-                if agent_bid := agent_job_price.get(job_id):  # Agents bid on jobs
-                    # Use task-based reputation (skill reputation)
-                    agent_reputation = self.curr_agent_reputation[task_id][agent_idx]
-                    bidding_agent_reputation.append(agent_reputation)
-                    bidding_agent_price.append(agent_bid)
-                    agents_bidding.append(agent_idx)
-
-            # Rest of the logic remains similar...
-            unranked_agent_score = self.utility_ces(bidding_agent_reputation, bidding_agent_price)
-
-            if len(unranked_agent_score) > 0:
-                reranked_agent_score, job_ranking = self.gumbel_rerank(np.array(unranked_agent_score), t=self.gumbel_t)
-                job_prefs[job_id] = np.array(agents_bidding)[job_ranking][: self.market_pref_limit]
-
-                _reranked_agent_scores = {
-                    agent_idx: float(reranked_task_agent_score)
-                    for agent_idx, reranked_task_agent_score in zip(agents_bidding, reranked_agent_score)
-                }
-                _unranked_agent_scores = {
-                    agent_idx: float(unranked_task_agent_score)
-                    for agent_idx, unranked_task_agent_score in zip(agents_bidding, unranked_agent_score)
-                }
-                reranked_agent_scores[job_id] = _reranked_agent_scores
-                unranked_agent_scores[job_id] = _unranked_agent_scores
-            else:
-                job_prefs[task_id] = []
+            if job_id not in job_prefs:
+                job_prefs[job_id] = []
 
         return job_prefs, unranked_agent_scores, reranked_agent_scores
 
@@ -556,36 +640,46 @@ class LabourMarket:
     def train_agents(self, agents: Set[int], agent_responses: List[AgentActionResponse]) -> Dict[int, str]:
         """Handle skill training for unmatched agents"""
         training_performed = {}
-        for agent_idx in agents:
+        updates_for_reputation = []
 
+        for agent_idx in agents:
             agent_action: AgentActionResponse = agent_responses[agent_idx]
 
-            if len(agent_action.targets) == 0:
-
+            if not agent_action.targets:
                 logger.warning(f"Empty agent action for agent {agent_idx}: {agent_action}")
+                continue
 
-                return {}
-
+            task_id = None
             if agent_action.action == "train":
                 task_id = agent_action.targets[0][0]
-
             elif agent_action.action == "bid":
-                task_id = self.job_to_task_id[agent_action.targets[0][0]]
+                task_id = self.job_to_task_id.get(agent_action.targets[0][0])
+
+            if not task_id:
+                # Could be an 'error' action or an invalid job_id
+                continue
 
             agent_task_runner = self.task_runners[task_id][agent_idx]
 
             # For unmatched agents, upgrade their skills here
-            # TODO: Separate train and bid? Make lost agents "win" easier??
             if agent_action.action == "train" or (
                 agent_action.action == "bid" and (np.random.uniform(0, 1) <= self.skill_phi)
             ):
-
                 agent_task_runner.upgrade_skill()
                 training_performed[agent_idx] = task_id
 
-            # Benchmark agent without updating to history
+            # Benchmark agent and collect performance for batch reputation update
             benchmark_performance = agent_task_runner.perform_task(upgrade_skill_p=0, benchmark=True)
-            reputation = self.update_reputation(agent_idx, task_id, benchmark_performance)
+            updates_for_reputation.append(
+                {"agent_idx": agent_idx, "task_id": task_id, "performance": benchmark_performance}
+            )
+
+        if updates_for_reputation:
+            df = pd.DataFrame(updates_for_reputation)
+            # Batch update reputations. The new reputations are stored in self.curr_agent_reputation.
+            self.update_reputation(
+                df["agent_idx"].tolist(), df["task_id"].tolist(), df["performance"].tolist()
+            )
 
         return training_performed
 
@@ -597,14 +691,13 @@ class LabourMarket:
         job_performances: Dict[str, Tuple[int, float]],
     ) -> Dict:
         """Process results and update reputation"""
-
-        # Initialize tracking structures
         agent_round_rewards = [0.0] * self.n_agents
-        agent_allocations = [[] for _ in range(self.n_agents)]  # List of allocations per agent
+        agent_allocations = [[] for _ in range(self.n_agents)]
         agent_reputation_updates = [{} for _ in range(self.n_agents)]
         winning_bid_prices = {}
 
-        # Process each matched job
+        # --- First pass: Collect data for batch update ---
+        updates_to_process = []
         for job_id, agent_idx in job_matches.items():
             if job_id not in job_performances:
                 continue
@@ -612,58 +705,61 @@ class LabourMarket:
             _agent_idx, performance = job_performances[job_id]
             assert agent_idx == _agent_idx, f"Agent mismatch for job {job_id}"
 
-            # Get task type for this job
             task_id = self.job_to_task_id[job_id]
-
-            # Update reputation for the skill
             old_reputation = self.curr_agent_reputation[task_id][agent_idx]
-            new_reputation = self.update_reputation(agent_idx, task_id, performance)
+            
+            updates_to_process.append({
+                'job_id': job_id, 'agent_idx': agent_idx, 'task_id': task_id,
+                'performance': performance, 'old_reputation': old_reputation
+            })
+        
+        if not updates_to_process:
+            return {
+                "agent_round_rewards": agent_round_rewards, "agent_allocations": agent_allocations,
+                "agent_reputation_updates": agent_reputation_updates, "winning_bid_prices": winning_bid_prices,
+                "job_performances": job_performances, "listings": listings_by_job,
+            }
+        
+        updates_df = pd.DataFrame(updates_to_process)
+        
+        # --- Perform batch reputation update ---
+        new_reputations = self.update_reputation(
+            updates_df['agent_idx'].tolist(), updates_df['task_id'].tolist(), updates_df['performance'].tolist()
+        )
+        updates_df['new_reputation'] = new_reputations
 
-            agent_reputation_updates[agent_idx][task_id] = new_reputation
+        # --- Second pass: Process results and build history objects ---
+        for _, row in updates_df.iterrows():
+            agent_idx = int(row['agent_idx'])
+            job_id, task_id = row['job_id'], row['task_id']
+            performance, old_rep, new_rep = row['performance'], row['old_reputation'], row['new_reputation']
 
-            # Calculate rewards
+            agent_reputation_updates[agent_idx][task_id] = new_rep
+
             base_price = listings_by_job[job_id]
             bid_price = agent_bidding_data["pricing"][agent_idx][job_id]
             adjusted_reward = bid_price * performance
+            
+            agent_allocations[agent_idx].append(JobHistory(
+                job_id=job_id, task_id=task_id, base_price=base_price, bid_price=bid_price,
+                performance=performance, adjusted_reward=adjusted_reward,
+                old_reputation=old_rep, new_reputation=new_rep,
+            ))
 
-            # Track job allocation for individual agents
-            job_history = JobHistory(
-                job_id=job_id,
-                task_id=task_id,
-                base_price=base_price,
-                bid_price=bid_price,
-                performance=performance,
-                adjusted_reward=adjusted_reward,
-                old_reputation=old_reputation,
-                new_reputation=new_reputation,
-            )
-            agent_allocations[agent_idx].append(job_history)
-
-            # Update totals
             agent_round_rewards[agent_idx] += adjusted_reward
             winning_bid_prices[job_id] = bid_price
 
-            # Store performance
-            perf_record = AgentPerformance(
-                agent_idx=agent_idx,
-                agent_id=self.agent_ids[agent_idx],
-                round=self.round_counter,
-                job_id=job_id,
-                task_id=task_id,
-                performance=performance,
-                reputation=new_reputation,
-            )
-
-            self.job_performance.append(perf_record)
+            self.job_performance.append(AgentPerformance(
+                agent_idx=agent_idx, agent_id=self.agent_ids[agent_idx], round=self.round_counter,
+                job_id=job_id, task_id=task_id, performance=performance, reputation=new_rep,
+            ))
 
         return {
-            "agent_round_rewards": agent_round_rewards,
-            "agent_allocations": agent_allocations,
-            "agent_reputation_updates": agent_reputation_updates,
-            "winning_bid_prices": winning_bid_prices,
-            "job_performances": job_performances,
-            "listings": listings_by_job,
+            "agent_round_rewards": agent_round_rewards, "agent_allocations": agent_allocations,
+            "agent_reputation_updates": agent_reputation_updates, "winning_bid_prices": winning_bid_prices,
+            "job_performances": job_performances, "listings": listings_by_job,
         }
+
 
     def _send_agent_feedback(
         self,

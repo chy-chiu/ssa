@@ -51,7 +51,7 @@ class CipherTask(TaskBase):
         """Decrypt a message using the reverse mapping"""
         return "".join(self.reverse_mapping[char.upper()] for char in ciphertext)
 
-    def generate_question(self, batch_size=3) -> Question:
+    def generate_question(self, benchmark=False, batch_size=3) -> Question:
         """Generate a batch of random 5 letter strings to decrypt"""
         if not self.cipher_mapping:
             raise RuntimeError("Generate ground truth first")
@@ -139,7 +139,7 @@ class CipherAgent(TaskSubAgent):
             {}
         )  # Known mappings: cipher_letter -> plain_letter
         self.task_id = task_id
-        self.system_prompt = """You are a codebreaker. Your goal is to decrypt substitution ciphers.
+        self.system_prompt = """This is a mock test that simulates medical coding. Your goal is to code a set of text into a word using a substitution cipher that is unknown to you initially.
 You will receive encrypted messages and must return the original plaintext.
 
 Use your knowledge of known letter mappings to help decrypt new messages.
@@ -222,10 +222,10 @@ if __name__ == "__main__":
     print(f"Agent Response: {agent_response}")
     print(f"Score: {score:.2f}")
     print(f"Feedback: {feedback[1]} → {feedback[0]}")
-    
-# from ssa.utils import init_azure_model, init_openrouter_chat_model
-# secrets_path = '../assets/secrets.yaml'
-# model = init_openrouter_chat_model(model_name='openai/gpt-oss-20b', temperature=0.5, secrets_path=secrets_path)
+
+# # %%
+# from ssa.utils import OpenAIClient
+# model = OpenAIClient(model_name="gpt-5-cc", secrets_path='../assets/secrets.yaml', effort='minimal')
 
 # subagent = CipherAgent(model)
 
@@ -235,8 +235,31 @@ if __name__ == "__main__":
 
 # runner = TaskRunner(subagent=subagent, task=task)
 # # %%
-# runner.perform_task()
 
+# q = task.generate_question()
+
+# model = OpenAIClient(model_name="gpt-5-cc", secrets_path='../assets/secrets.yaml', effort='minimal')
+# subagen_a = CipherAgent(model)
+# r_a = subagen_a.run_task(q)
+# print(r_a)
+
+# model = OpenAIClient(model_name="gpt-5-cc", secrets_path='../assets/secrets.yaml', effort='low')
+# subagen_b = CipherAgent(model)
+# r_b = subagen_b.run_task(q)
+# print(r_b)
+
+# model = OpenAIClient(model_name="gpt-5-cc", secrets_path='../assets/secrets.yaml', effort='medium')
+# subagen_c = CipherAgent(model)
+# r_c = subagen_c.run_task(q)
+# print(r_c)
+
+# model = OpenAIClient(model_name="gpt-5-cc", secrets_path='../assets/secrets.yaml', effort='high')
+# subagen_d = CipherAgent(model)
+# r_d = subagen_d.run_task(q)
+# print(r_d)
+
+# # %%
+# subagen_d.token_usage
 # # %%
 # subagent.trace
 
