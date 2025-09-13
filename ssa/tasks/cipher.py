@@ -28,7 +28,7 @@ class CipherTask(TaskBase):
         self.cipher_mapping: Dict[str, str] = {}  # A->X, B->Y, etc.
         self.reverse_mapping: Dict[str, str] = {}  # X->A, Y->B, etc.
 
-        with open("ssa/assets/words.txt", "r") as f:
+        with open("../assets/words.txt", "r") as f:
             self.words = [s.upper().strip("\n") for s in f.readlines()]
 
     def generate_ground_truth(self, seed: int = None):
@@ -51,7 +51,7 @@ class CipherTask(TaskBase):
         """Decrypt a message using the reverse mapping"""
         return "".join(self.reverse_mapping[char.upper()] for char in ciphertext)
 
-    def generate_question(self, batch_size=5) -> Question:
+    def generate_question(self, batch_size=3) -> Question:
         """Generate a batch of random 5 letter strings to decrypt"""
         if not self.cipher_mapping:
             raise RuntimeError("Generate ground truth first")
@@ -130,8 +130,6 @@ class CipherTask(TaskBase):
         mapped_letter = self.cipher_mapping[input_letter]
         return (input_letter, mapped_letter)  # (plaintext_letter, cipher_letter)
 
-
-# TODO: Make it a subagent
 class CipherAgent(TaskSubAgent):
     def __init__(self, model: ChatOpenAI, task_id: str = "Crypto-01"):
         self.model = model
@@ -156,7 +154,7 @@ Reply in JSON output format only and nothing else. Format as below:
         self.token_usage = []
         self.trace = []
 
-    def probe_task(self, question: Question) -> CipherResponse:
+    def run_task(self, question: Question) -> CipherResponse:
         
         # TODO: Move this one level up + add retries (???) maybe... 
         """Attempt to decrypt the ciphertext using known mappings"""
@@ -217,7 +215,7 @@ if __name__ == "__main__":
     print(f"Correct Answer: {q.correct_answer}")
 
     # Simulate agent response and feedback
-    agent_response = CipherResponse(reasoning="", answer=['PVAUS', 'IECDE', 'ABABA', 'NZJVV', 'ASDD'])  # Random guess
+    agent_response = CipherResponse(reasoning="", answer=['LIMEN' ,'REDAL', "ALAHD"])  # Random guess
     score = task.score_response(q, agent_response)
     feedback = task.extract_feedback_info(q, agent_response)
 
@@ -225,18 +223,22 @@ if __name__ == "__main__":
     print(f"Score: {score:.2f}")
     print(f"Feedback: {feedback[1]} → {feedback[0]}")
     
-# from ssa.utils import init_azure_model
+# from ssa.utils import init_azure_model, init_openrouter_chat_model
 # secrets_path = '../assets/secrets.yaml'
-# model = init_azure_model(secrets_path=secrets_path)
+# model = init_openrouter_chat_model(model_name='openai/gpt-oss-20b', temperature=0.5, secrets_path=secrets_path)
 
-# agent = CipherAgent(model)
+# subagent = CipherAgent(model)
 
 # task = CipherTask(task_id=1)
+
 # task.generate_ground_truth(seed=42)
 
-# runner = TaskRunner(agent=agent, task=task)
-
+# runner = TaskRunner(subagent=subagent, task=task)
+# # %%
 # runner.perform_task()
+
+# # %%
+# subagent.trace
 
 # # %%
 # from tqdm import trange

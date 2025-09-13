@@ -7,6 +7,7 @@ import numpy as np
 from loguru import logger
 from ssa.common import AgentLog, SubAgentLog
 
+
 class Question(BaseModel):
     question_text: str
     question_data: Any  # Task-specific data needed for scoring
@@ -17,6 +18,7 @@ class TaskBase(ABC):
     """Abstract base class for all task types"""
 
     base_reward: float
+    initial_info: Any
 
     def __init__(self, task_id: str):
         self.id = task_id
@@ -43,7 +45,6 @@ class TaskBase(ABC):
         pass
 
 
-
 class TaskSubAgent(ABC):
     """Subagent class to handle specific tasks"""
 
@@ -57,8 +58,8 @@ class TaskSubAgent(ABC):
         self.knowledge_base: Dict[str, str] = {}
 
     @abstractmethod
-    def probe_task(self, question: Question) -> str:
-        """Calls LLM to answer a question. Need better name than probe_task"""
+    def run_task(self, question: Question) -> str:
+        """Calls LLM to answer a question"""
         pass
 
     @abstractmethod
@@ -88,16 +89,16 @@ class TaskSubAgent(ABC):
 
 class TaskRunner:
 
-    def __init__(self, agent: TaskSubAgent, task: TaskBase):
-        self.agent = agent
+    def __init__(self, subagent: TaskSubAgent, task: TaskBase):
+        self.subagent = subagent
         self.task = task
 
     # reflect update skill maybe
-    def perform_task(self, upgrade_skill_p: float = 1.0) -> float:
+    def perform_task(self, upgrade_skill_p: float = 1.0, benchmark=False) -> float:
         """Returns a 0-1 float reflecting agent performance"""
 
-        question = self.task.generate_question()
-        agent_response = self.agent.probe_task(question)
+        question = self.task.generate_question(benchmark=benchmark)
+        agent_response = self.subagent.run_task(question)
         agent_performance = self.task.score_response(question, agent_response)
         feedback = self.task.extract_feedback_info(question, agent_response)
 
@@ -105,7 +106,7 @@ class TaskRunner:
         # Alternatively, if it's just random snippets of information, naturally the growth curve will be convex and plateaus?
         # Either way, takes a random skill P here for now
         if np.random.uniform(0, 1) <= upgrade_skill_p:
-            self.agent.update_knowledge_base(feedback)
+            self.subagent.update_knowledge_base(feedback)
 
         return agent_performance
 
@@ -118,25 +119,35 @@ class TaskRunner:
         else:
             feedback = self.task.get_random_feedback()
 
-        self.agent.update_knowledge_base(feedback)
+        self.subagent.update_knowledge_base(feedback)
 
 
 class ProxyTask(TaskBase):
     """Proxy task that rewards purely by skill level"""
 
-    def __init__(self, task_id: str):
+    def __init__(self, task_id: str, noise=0.0):
         super().__init__(task_id=task_id)
         self.debug_int = 0
+        self.noise = noise
 
     def generate_ground_truth(self, seed=None):
         return None
 
-    def generate_question(self):
-        return None
+    def generate_question(self, benchmark: bool):
+        if benchmark:
 
+            return Question(question_text="benchmark", question_data=None, correct_answer=None)
+
+        else:
+            return Question(question_text="random", question_data=None, correct_answer=None)
+        
     def score_response(self, question, agent_response):
-        return float(agent_response)
-
+        
+        if question.question_text == "benchmark":
+            return agent_response
+        else:
+            return np.clip(agent_response * (1 + np.random.normal(0, self.noise)), 0, 1)
+    
     def extract_feedback_info(self, question, agent_response):
         # logger.debug(f"task_id: {self.id}, id: {self.debug_int}")
         self.debug_int += 1
@@ -146,16 +157,16 @@ class ProxyTask(TaskBase):
 class ProxyAgent(TaskSubAgent):
     """Proxy agent that has a skill √alue that grows with repeated tasks"""
 
-    def __init__(self, model, task_id: str):
+    def __init__(self, model, task_id: str, decay=0.9, starting=0.4):
         super().__init__(model=model, task_id=task_id)
-        self._skill_level = 0.25
+        self._skill_level = starting
+        self.decay = decay
 
-    def probe_task(self, question):
+    def run_task(self, question):
         return self._skill_level
-        return np.clip(self._skill_level * (1 + np.random.normal(0, 0.1)), 0, 1)
-
+        
     def update_knowledge_base(self, feedback_info):
-        self._skill_level = 1 - (1 - self._skill_level) * 0.9
+        self._skill_level = 1 - (1 - self._skill_level) * self.decay
         return None
 
     @property
@@ -163,6 +174,17 @@ class ProxyAgent(TaskSubAgent):
         return int(self._skill_level * 100)
 
 
+# # %%
+# import numpy as np
+# import matplotlib.pyplot as plt
+
+# d = 0.9
+# s = 0.4
+# S = [s]
+# for _ in range(100):
+#     s = 1 - (1 - s) * d
+#     S.append(s)
+# plt.plot(S)
 # %%
 # Test
 # task_id = "test"
