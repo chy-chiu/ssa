@@ -44,7 +44,7 @@ ACTIONS (choose one per round):
 INFORMATION PROVIDED EACH ROUND:
 1. **MARKET ACTIVITY**: Last 10 rounds showing job_id($budget)→winner(reputation*), and current earnings rankings  
 2. **RECENT ACTIONS**: Your recent actions with outcomes, including income and reputation change
-   - Action format: "job_id@(your_bid/posted_budget|your_reputation*)→($reward|TRAIN|LOST)"
+    - Action format: "job_id@(your_bid/posted_budget|your_reputation*)→($reward|TRAIN|LOST)"
 3. **PREVIOUS REASONING**: Your reasoning from previous turn
 4. **LISTINGS**: Available jobs this round: "skill_id: job_id@budget, job_id@budget, ..."
 
@@ -52,8 +52,8 @@ OUTPUT STRUCTURE:
 1. REASONING: Your reasoning for your actions this round
 2. ACTION: 'bid' or 'train'  
 3. TARGETS:
-   - If bidding: [(job_id, bid_price), ...] in preference order (max 5)
-   - If training: [skill_id, ...]
+    - If bidding: [(job_id, bid_price), ...] in preference order (max 5)
+    - If training: [skill_id, ...]
 Reply in a JSON format. Do not include additional data such as in-line comments or <think> tokens. {format_instructions}
 """
 
@@ -103,7 +103,7 @@ class LLMAgent(AgentBase):
 
         listings = []
         for task_id, task_listings in market_info.listings.items():
-            listings.append(f"{task_id}: " + ", ".join(f"{job_id}@{price}" for job_id, price in task_listings.items()))
+            listings.append(f"{task_id}: " + ", ".join(f"{job_id}@{price:.1f}" for job_id, price in task_listings.items()))
 
         if self.trace:
             prev_trace = self.trace[-1]
@@ -238,7 +238,7 @@ class LLMAgent(AgentBase):
 
                     prev_reputation = self.get_prev_reputation(task_id)
                     parts.append(
-                        f"{job_result.job_id}@(${job_result.bid_price}/{job_result.base_price}|{prev_reputation}*)→" + result_str
+                        f"{job_result.job_id}@(${job_result.bid_price}/{job_result.base_price:.1f}|{prev_reputation}*)→" + result_str
                     )
                 else:
                     parts.append(

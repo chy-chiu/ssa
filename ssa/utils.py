@@ -194,3 +194,64 @@ class OpenAIClient:
 def format_dict_str(_dict):
     # print(_dict)
     return "[" + ", ".join(f"{k}: {_dict[k]}" for k in sorted(_dict)) + "]"
+
+
+def generate_gini_table(data_tuples):
+    """
+    Generate LaTeX table from tuples of (ratio, market_limit, mean, std)
+    
+    Args:
+        data_tuples: List of tuples (ratio, market_limit, mean, std)
+    
+    Returns:
+        str: LaTeX table string
+    """
+    import numpy as np
+    from collections import defaultdict
+    
+    # Organize data by market_limit and ratio
+    table_data = defaultdict(dict)
+    ratios = set()
+    market_limits = set()
+    
+    for ratio, market_limit, mean, std in data_tuples:
+        table_data[market_limit][ratio] = (mean, std)
+        ratios.add(ratio)
+        market_limits.add(market_limit)
+    
+    # Sort ratios and market_limits
+    sorted_ratios = sorted(ratios)
+    sorted_market_limits = sorted(market_limits)
+    
+    # Generate LaTeX table
+    latex = "\\begin{table}[h]\n\\centering\n"
+    
+    # Table header
+    num_cols = len(sorted_ratios) + 1  # +1 for market_limit column
+    latex += f"\\begin{{tabular}}{{{'c' * num_cols}}}\n"
+    latex += "\\hline\n"
+    
+    # Column headers
+    header = "Market Limit"
+    for ratio in sorted_ratios:
+        header += f" & {ratio}"
+    latex += header + " \\\\\n\\hline\n"
+    
+    # Data rows
+    for market_limit in sorted_market_limits:
+        row = f"{market_limit}"
+        for ratio in sorted_ratios:
+            if ratio in table_data[market_limit]:
+                mean, std = table_data[market_limit][ratio]
+                row += f" & ${mean:.2f} \\pm {std:.2f}$"
+            else:
+                row += " & --"  # Missing data
+        latex += row + " \\\\\n"
+    
+    latex += "\\hline\n"
+    latex += "\\end{tabular}\n"
+    latex += "\\caption{Gini coefficient statistics across ratios and market limits}\n"
+    latex += "\\label{tab:gini_ratios_markets}\n"
+    latex += "\\end{table}"
+    
+    return latex

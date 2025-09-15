@@ -332,7 +332,7 @@ class LabourMarket:
         """Generate job payments from job definitions"""
         listings_by_task = {task_id: {} for task_id in self.task_ids}
 
-        listings_by_job = {job.id: job.base_reward for job_id, job in self.jobs.items() if job.get_base_reward() >= 0}
+        listings_by_job = {job_id: job.get_base_reward() for job_id, job in self.jobs.items() if job.list_job()}
 
         for job_id in listings_by_job.keys():
             task_id = self.job_to_task_id[job_id]
@@ -388,8 +388,10 @@ class LabourMarket:
             bidding_agent_reputation = group['reputation'].values
             bidding_agent_price = group['price'].values
 
+            job = self.jobs[job_id]
+                        
             # Apply your existing logic on the NumPy arrays
-            unranked_scores = self.utility_ces(bidding_agent_reputation, bidding_agent_price)
+            unranked_scores = self.utility_ces(bidding_agent_reputation, bidding_agent_price, w_q=job.w_q)
             reranked_scores, job_ranking_indices = self.gumbel_rerank(unranked_scores, t=self.gumbel_t)
 
             # Use the sorted indices to get the top agent IDs
@@ -406,20 +408,6 @@ class LabourMarket:
                 job_prefs[job_id] = []
 
         return job_prefs, unranked_agent_scores, reranked_agent_scores
-
-    def _match_jobs_all(self, market_preference: Dict[str, List[int]]) -> Tuple[Dict[str, int], Set[int], List[str]]:
-        job_matches = {}
-        all_agents = set(np.arange(self.n_agents))
-        unmatched_jobs = [job_id for job_id, market_pref in market_preference.items() if len(market_pref) == 0]
-        matched_agents = set()
-
-        for job_id, market_pref in market_preference.items():
-            if len(market_pref) > 0:
-                matched_agent_idx = market_pref[0]
-                job_matches[job_id] = matched_agent_idx
-                matched_agents.add(matched_agent_idx)
-
-        return job_matches, all_agents - matched_agents, unmatched_jobs
 
     async def _get_agent_actions_async(
         self,
@@ -835,8 +823,6 @@ class LabourMarket:
             agent_bidding_data["preferences"], market_preference, multi_limit=self.market_limit
         )
 
-        # job_matches, unmatched_agents, unmatched_jobs = self._match_jobs_all(market_preference)
-
         # 4. Execute matched jobs and collect performance
         job_performances = asyncio.run(self.execute_jobs_async(job_matches))
 
@@ -900,7 +886,8 @@ class LabourMarket:
             agent_name = self.agent_ids[agent_idx]
             rep = round(round_data.prev_reputation[task_id][agent_idx] * 5, 1)
             price = round_data.base_prices[job_id]
-            allocations.append(f"{job_id}(${price})→{agent_name}({rep}*)")
+            winning_bid = round_data.winning_prices[job_id]
+            allocations.append(f"{job_id}→{agent_name}(${winning_bid:.1f}/${price:.1f}, {rep}*)")
 
         agent_rewards = round_data.agent_total_rewards
         reward_sorted = " ".join(

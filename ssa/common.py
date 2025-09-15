@@ -1,12 +1,12 @@
 import numpy as np
-from typing import List, Dict, Optional, Tuple, Set, Any, Literal
+from typing import List, Dict, Optional, Tuple, Set, Any, Literal, Union
 import pandas as pd
 from pydantic import BaseModel, Field, model_validator
 from copy import deepcopy
 from loguru import logger
 import asyncio
 import nest_asyncio
-
+from collections import defaultdict
 
 class Job(BaseModel):
     """A job instance that requires a specific task/skill type"""
@@ -16,16 +16,19 @@ class Job(BaseModel):
     base_reward: float  # Payment for this specific job
     job_p: float = 1.0
     noise: float = 0
+    w_q: float = 0.6
 
     def __hash__(self):
         return hash(self.id)
 
     def get_base_reward(self):
+        return np.clip(self.base_reward + np.random.normal(0, self.noise), a_min=0.1, a_max=None)
+        
+    def list_job(self):
         if np.random.uniform() < self.job_p:
-            return self.base_reward + np.random.normal(self.noise)
+            return True
         else:
-            return -1.0
-
+            return False
 
 class JobHistory(BaseModel):
     """Single job performance history for an agent"""
@@ -177,8 +180,8 @@ class RoundData(BaseModel):
     winning_prices: Dict[str, float]  # agreed price with bid winning agent
 
     # Outcome of each agent's scores (which is a combination of agent_bid + reputation + gumbel noise)
-    unranked_agent_scores: Dict[str, Dict[int, float]]  # task_id: (agent_idx: agent_score)
-    reranked_agent_scores: Dict[str, Dict[int, float]]  # task_id: (agent_idx: agent_score)
+    unranked_agent_scores: Dict[str, Dict[int, Optional[float]]]  # task_id: (agent_idx: agent_score)
+    reranked_agent_scores: Dict[str, Dict[int, Optional[float]]]  # task_id: (agent_idx: agent_score)
     market_preference: Dict[str, List[int]]  # ordered preferences from ^
 
     # Outcome of stable matching
@@ -226,7 +229,7 @@ class AgentLog(BaseModel):
     skill_history: Dict[str, Tuple[List[int], List[float]]]
     reputation: Dict[str, Tuple[int, float, float]]
     total_reward: float
-    trace: List[Tuple[str, Any, AgentActionResponse]]
+    trace: List[Union[Tuple[str, Any, AgentActionResponse], Tuple[str, AgentActionResponse]]]
     token_usage: Dict[str, Any]
     subagents: Dict[str, SubAgentLog]
 
@@ -329,3 +332,15 @@ class ExperimentLog(BaseModel):
     @property
     def agent_total_rewards(self) -> List[List[float]]:
         return [hx.agent_total_rewards for hx in self.history]
+
+    @property
+    def winning_bids(self)-> Dict[str, List[Tuple[int, float, float]]]:
+
+        winning_bids = defaultdict(list)
+
+        for ix, history in enumerate(self.history):
+            for job_id, winning_price in history.winning_prices.items():
+                base_price = history.base_prices[job_id]
+                winning_bids[job_id].append((ix, winning_price / base_price, winning_price))
+
+        return winning_bids

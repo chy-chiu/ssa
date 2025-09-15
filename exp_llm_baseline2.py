@@ -14,17 +14,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from loguru import logger
 
-task_suffix = ["A", "B", "C", "D"]
-task_ids = [f"SK-{i}" for i in task_suffix]
-
-tasks = [ProxyTask(t, noise=0.05) for t in task_ids]
-
-jobs = [
-    Job(id=f"JB-{sfx}{i}", task_id=f"SK-{sfx}", job_p=0.8, noise=0.5, base_reward=10 - i * 2)
-    for sfx in task_suffix
-    for i in range(4)
-]
-
 # model = init_openrouter_chat_model(model_name="openai/gpt-oss-120B", temperature=0.5)
 
 # agents = [PolicyAgent(agent_id=f"pol_{i}", jobs=jobs, model=None, verbose=False) for i in range(8)]
@@ -35,63 +24,144 @@ jobs = [
 # agents.append(LLMAgent(agent_id=f"llm_0", jobs=jobs, model=model, verbose=True))
 # agents.append(LLMAgent(agent_id=f"llm_1", jobs=jobs, model=model, verbose=False))
 
-agents = []
 
-for i in range(4):
-    agent_name = f"LLM-{i}"
-    model = OpenAIClient(effort='minimal')
-    agent = LLMAgent(agent_id=agent_name, jobs=jobs, model=model, verbose=False)
-    agents.append(agent)
+for j in range(5):
+        
+    task_suffix = ["A", "B", "C", "D"]
+    task_ids = [f"SK-{i}" for i in task_suffix]
 
-for i in range(4):
-    agent_name = f"SSA-{i}"
-    model = OpenAIClient(effort='minimal')
-    agent = LLMSSA(agent_id=agent_name, jobs=jobs, model=model, verbose=False)
-    agents.append(agent)
+    tasks = [ProxyTask(t, noise=0.05) for t in task_ids]
 
-# Greedy agent takes highest priced tasks, trains randomly, and doesn't care about anything else
-greedy_agent = PolicyAgent(agent_id="GRDPL", jobs=jobs, model=model)
-greedy_agent.set_policy(
-    greedy=True,
-    underbid_factor=0.8,
-    train_p=0.1,
-)
-agents.append(greedy_agent)
+    jobs = [
+        Job(id=f"JB-{sfx}{i}", task_id=f"SK-{sfx}", job_p=0.8, noise=0.5, base_reward=10 - i * 2)
+        for sfx in task_suffix
+        for i in range(4)
+    ]
 
-# Fixed agent only takes job from task A (and task B if no task A), only trains in task A, and only moderately underbids
-fixed_agent = PolicyAgent(agent_id="FIXPL", jobs=jobs, model=model)
-fixed_agent.set_policy(
-    greedy=False,
-    underbid_factor=0.9,
-    task_preferences=fixed_agent.task_ids,
-    job_preferences=fixed_agent.job_ids,
-    train_p=0.2,
-)
-agents.append(fixed_agent)
+    agents = []
 
-market = LabourMarket(
-    jobs=jobs,
-    market_limit=3,
-    agent_pref_limit=5,
-    market_pref_limit=5,
-    tasks=tasks,
-    agents=agents,
-    skill_phi=0.1,
-    rep_window=5,
-    rep_lambda=0.5,
-    rep_sensitivity=1,
-    gumbel_t=0.01,
-)
+    for i in range(4):
+        agent_name = f"L2M-{i}"
+        model = OpenAIClient(effort='minimal')
+        agent = LLM2Agent(agent_id=agent_name, jobs=jobs, model=model, verbose=False)
+        agents.append(agent)
 
-for _ in range(100):
-    logger.info(market.simulate_timestep())
+    for i in range(4):
+        agent_name = f"SSA-{i}"
+        model = OpenAIClient(effort='minimal')
+        agent = LLMSSA(agent_id=agent_name, jobs=jobs, model=model, verbose=False)
+        agents.append(agent)
 
-exp_log = market.export("logs/llm_ssa_test.log")
+    # Greedy agent takes highest priced tasks, trains randomly, and doesn't care about anything else
+    greedy_agent = PolicyAgent(agent_id="GRDPL", jobs=jobs, model=model)
+    greedy_agent.set_policy(
+        greedy=True,
+        underbid_factor=0.8,
+        train_p=0.1,
+    )
+    agents.append(greedy_agent)
 
-# %%
-market.agents[0].token_usage
-# %%
-from ssa.market import LabourMarket, ExperimentLog, Job
+    # Fixed agent only takes job from task A (and task B if no task A), only trains in task A, and only moderately underbids
+    fixed_agent = PolicyAgent(agent_id="FIXPL", jobs=jobs, model=model)
+    fixed_agent.set_policy(
+        greedy=False,
+        underbid_factor=0.9,
+        task_preferences=fixed_agent.task_ids,
+        job_preferences=fixed_agent.job_ids,
+        train_p=0.2,
+    )       
+    agents.append(fixed_agent)
+
+    market = LabourMarket(
+        jobs=jobs,
+        market_limit=3,
+        agent_pref_limit=5,
+        market_pref_limit=5,
+        tasks=tasks,
+        agents=agents,
+        skill_phi=0.1,
+        rep_window=5,
+        rep_lambda=0.5,
+        rep_sensitivity=1,
+        gumbel_t=0.01,
+    )
+
+    for _ in range(100):
+        logger.info(market.simulate_timestep())
+
+    exp_log = market.export(f"logs/l2m_ssa_{j}.log")
+
+# # %%
+# market.agents[0].token_usage
+# # %%
+# from ssa.market import LabourMarket, ExperimentLog, Job
+
+for j in range(5):
+    
+    task_suffix = ["A", "B", "C", "D"]
+    task_ids = [f"SK-{i}" for i in task_suffix]
+
+    tasks = [ProxyTask(t, noise=0.05) for t in task_ids]
+
+    jobs = [
+        Job(id=f"JB-{sfx}{i}", task_id=f"SK-{sfx}", job_p=0.8, noise=0.5, base_reward=10 - i * 2)
+        for sfx in task_suffix
+        for i in range(4)
+    ]
+
+    agents = []
+
+    for i in range(4):
+        agent_name = f"LLM-{i}"
+        model = OpenAIClient(effort='minimal')
+        agent = LLMAgent(agent_id=agent_name, jobs=jobs, model=model, verbose=False)
+        agents.append(agent)
+
+    for i in range(4):
+        agent_name = f"SSA-{i}"
+        model = OpenAIClient(effort='minimal')
+        agent = LLMSSA(agent_id=agent_name, jobs=jobs, model=model, verbose=False)
+        agents.append(agent)
+
+    # Greedy agent takes highest priced tasks, trains randomly, and doesn't care about anything else
+    greedy_agent = PolicyAgent(agent_id="GRDPL", jobs=jobs, model=model)
+    greedy_agent.set_policy(
+        greedy=True,
+        underbid_factor=0.8,
+        train_p=0.1,
+    )
+    agents.append(greedy_agent)
+
+    # Fixed agent only takes job from task A (and task B if no task A), only trains in task A, and only moderately underbids
+    fixed_agent = PolicyAgent(agent_id="FIXPL", jobs=jobs, model=model)
+    fixed_agent.set_policy(
+        greedy=False,
+        underbid_factor=0.9,
+        task_preferences=fixed_agent.task_ids,
+        job_preferences=fixed_agent.job_ids,
+        train_p=0.2,
+    )       
+    agents.append(fixed_agent)
+
+    market = LabourMarket(
+        jobs=jobs,
+        market_limit=3,
+        agent_pref_limit=5,
+        market_pref_limit=5,
+        tasks=tasks,
+        agents=agents,
+        skill_phi=0.1,
+        rep_window=5,
+        rep_lambda=0.5,
+        rep_sensitivity=1,
+        gumbel_t=0.01,
+    )
+
+    for _ in range(100):
+        logger.info(market.simulate_timestep())
+
+    exp_log = market.export(f"logs/llm_ssa_{j}.log")
+
 
 # exp_log = ExperimentLog.load('logs/llm_baseline_test.log')
 # # %%

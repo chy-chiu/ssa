@@ -171,7 +171,7 @@ class ProxyAgent(TaskSubAgent):
 
     @property
     def skill_level(self):
-        return int(self._skill_level * 100)
+        return int(round(self._skill_level * 100))
 
 
 # # %%

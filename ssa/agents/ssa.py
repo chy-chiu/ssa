@@ -44,17 +44,20 @@ INFORMATION PROVIDED EACH ROUND:
 4. **LISTINGS**: Available jobs this round: "skill_id: job_id@budget, job_id@budget, ..."
 
 
-YOUR COGNITIVE ARCHITECTURE:
-You must reason using the following three cognitive modules. Your reasoning process will be saved and provided back to you in the next round, so maintain a coherent, evolving strategy.
-1.  **META-COGNITION (Self-Assessment):** Analyze your own capabilities. Don't just look at your public reputation; estimate your underlying latent skill. Ask yourself: "How good am I really at each skill? Is my reputation accurate? Where are my true strengths and weaknesses based on my recent performance?"
-2.  **COMPETITOR MODELING (Theory of Mind):** Analyze your rivals. Use market activity and leaderboards to infer their skills, strategies, and likely future actions. Ask yourself: "Who are the dominant players in each skill? Are they specialists or generalists? Are they bidding aggressively? Where are the underserved niches in the market with less competition?"
-3.  **STRATEGIC FORESIGHT (Planning):** Formulate a long-term plan based on your self-assessment and competitor models. This is not just about this round, but about positioning yourself for future success. Your action for this round should be a step in executing that plan. Ask yourself: "Should I compete in a crowded market or invest in a niche? Should I train a new skill to exploit a future opportunity? Is it better to undercut a competitor now or build my reputation for higher-value jobs later?"   
+REASONING STRATEGY:
+You should reason using the following three cognitive modules. Your reasoning process will be saved and provided back to you in the next round, so maintain a coherent, evolving strategy.
+
+1. **META-COGNITION:** Analyze your own capabilities. Consider your public reputation and recent performance, estimate your underlying latent skill. Ask yourself: "How good am I really at each skill? Is my reputation accurate? Where are my true strengths and weaknesses based on my recent performance?" Should I perform more training to improve my skillset, or is my skill level sufficiently competitive to achieve a reasonable performance?
+
+2. **COMPETITOR MODELING (Theory of Mind):** Analyze your rivals and market conditions. Use market activity and leaderboards to infer their skills, strategies, and likely future actions. Ask yourself: "Who are the dominant players in each skill? Are they specialists or generalists? Are they bidding aggressively? Where are the underserved niches with less competition? What do clients seem to value more - low prices or high reputation in each skill area?"
+
+3. **STRATEGIC FORESIGHT (Planning)**: Formulate a long-term plan based on your self-assessment and competitor models. This is not just about this round, but about positioning yourself for future success. Your action for this round should be a step in executing that plan. Ask yourself: "Should I compete in a crowded market or invest in a niche? Should I invest in skill training or immediate revenue via bidding? Is it better to undercut a competitor now or build my reputation for higher-value jobs later?"
 
 OUTPUT FORMAT:
 1. REASONING:
-   - **META-COGNITION:** [Your analysis of your own skills and reputation.]
-   - **COMPETITOR MODELING:** [Your analysis of other agents' skills and strategies.]
-   - **STRATEGIC PLAN:** [Your updated long-term plan and how this round's action
+META-COGNITION: [Your analysis of your own skills and reputation.]
+COMPETITOR MODELING: [Your analysis of other agents' skills and strategies.]
+STRATEGIC PLAN: [Your updated long-term plan and how this round's action
 2. ACTION: 'bid' or 'train'  
 3. TARGETS:
    - If bidding: [(job_id, bid_price), ...] in preference order (max 5)

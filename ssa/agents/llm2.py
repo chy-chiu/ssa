@@ -127,7 +127,7 @@ class LLM2Agent(AgentBase):
         if response.response_metadata["token_usage"]:
             self.token_usage.append(response.response_metadata["token_usage"])
 
-        response_content = response.content.replace("<think>", "")
+        response_content = response.content.replace("<think>", "").replace("\n", "")
         response_content = re.sub(r'\\([^\\"nrtbfuv])', r'\1', response_content)  # Remove backslashes except before valid JSON escape chars
 
 
@@ -220,7 +220,7 @@ class LLM2Agent(AgentBase):
 
                     prev_reputation = self.get_prev_reputation(task_id)
                     parts.append(
-                        f"{job_result.job_id}@(${job_result.bid_price}/{job_result.base_price}|{prev_reputation}*)→" + result_str
+                        f"{job_result.job_id}@(${job_result.bid_price}/{job_result.base_price:.1f}|{prev_reputation}*)→" + result_str
                     )
                 else:
                     parts.append(

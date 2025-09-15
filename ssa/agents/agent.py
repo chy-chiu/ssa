@@ -130,7 +130,7 @@ class AgentBase(ABC):
                 # allocations.append(f"{job_id}(${price})→{agent_name}({rep}*)@${winning_price}")
                 
                 # no price shown
-                allocations.append(f"{job_id}(${price})→{agent_name}({rep}*)")
+                allocations.append(f"{job_id}(${price:.1f})→{agent_name}({rep}*)")
 
             lines.append(f"R{round_data.round}: {', '.join(allocations)}")
 
