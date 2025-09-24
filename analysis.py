@@ -83,8 +83,6 @@ latex_transposed = results_transposed.to_latex(
 )
 print(latex_transposed)
 # %%
-df
-# %%
 ## Q: Baseline experiment, Open v.s. closed price auction - which one better?
 
 price_logs = []
@@ -212,8 +210,8 @@ print(l)
 # Analysis on changing price sensitivity
 price_points = []
 actions = []
-for i in range(1):
-    filepath = f'logs/wq1_exp_{i}.log'
+for i in range(4):
+    filepath = f'logs/wq/wq_exp_{i}.log'
     exp_log = ExperimentLog.load(filepath)
 
     for j in exp_log.job_ids:
@@ -223,27 +221,281 @@ for i in range(1):
                 tp, p = p
                 price_points.append(dict(agent_id=agent_id, agent_type=agent_id[:3], task=job_type, step=tp, price=p))
     
-    actions.append([[action.targets for action in hx.agent_actions if action.action == 'train'] for hx in exp_log.history])
+    actions.append([[action.targets[0][0] for action in hx.agent_actions if action.action == 'train'] for hx in exp_log.history])
     # price_traces.append(interp_trace(t))
 # %%
+import itertools
+
+actions =  [list(itertools.chain(*action)) for action in actions]
+actions
+
+# %%
 df = pd.DataFrame(price_points)
-df.groupby(['task', 'agent_type']).mean(numeric_only=True)
+_df = df.query('agent_type=="L2M"').groupby(['task']).agg({
+               'price': ['mean', 'std'],
+           })
+
+p_mean = _df['price']['mean']
+p_std = _df['price']['std']
+_df
+# %%
+# w_q experiments
+agent_train_targets = []
+agent_bid_targets = []
+for j in range(4):
+    filepath = f'logs/wq/wq_exp_{i}.log'
+    exp_log = ExperimentLog.load(filepath)
+    for i in range(4):
+        agent_history = exp_log.agents[i].agent_history
+        for hx in agent_history:
+            ix = hx.round
+            agent_action = hx.agent_action
+            if i <= 2: 
+                agent_type = 'l2m'
+            else:
+                agent_type = 'ssa'
+            if agent_action.action == 'train':
+                print(agent_action.targets[0][0])
+                agent_train_targets.append((ix, agent_type, agent_action.targets[0][0]))
+            elif agent_action.action == 'bid':
+                for rank, target in enumerate(agent_action.targets):
+                    agent_bid_targets.append((ix, agent_type, target[0], target[0][:4], rank))
+# %%
+df = pd.DataFrame(agent_train_targets, columns=['time', 'agent', 'skill'])
+df.skill.value_counts()
 # %%
 actions
 # %%
-skill_counts = []
-for a in actions:
-    for _a in a:
-        for __a in _a:
-            skill_counts.append(__a[0][0])
-
 from collections import Counter
 
-Counter(skill_counts)
+skill_counts = []
+actions
+for a in actions:
+    skill_counts.append(Counter(a))
+
+s_mean = []
+s_std = []
+for sk in ['SK-A', 'SK-B', 'SK-C', 'SK-D']:
+    _s = [skill_counts[i][sk] for i in range(4)]
+    s_mean.append(np.mean(_s))
+    s_std.append(np.std(_s))
+
+# %%
+agent_action_series = []
+price_point_series = []
+for wq in [0.1, 0.3, 0.5, 0.7, 0.9, '0.3b']:
+    filepath = f'logs/wq/wq_{wq}.log'
+    exp_log = ExperimentLog.load(filepath)
+    
+    if wq == '0.3b': 
+        wq = 0.3
+    for agent in exp_log.agents:
+        for hx in agent.agent_history:
+            ix = hx.round
+            agent_action = hx.agent_action
+            if agent_action.action == 'train':
+                a = 1
+            else:
+                a = 0
+            agent_action_series.append([wq, ix, agent.id, a])
+    # for j in exp_log.job_ids:
+    #     for ix, pp in enumerate(exp_log.winning_bids[j]):
+    #         for p in pp:
+    #             tp, p = p
+    #             price_point_series.append([wq, ix, p])
+
+    for hx in exp_log.history:
+        for job_id, p in hx.winning_prices.items():
+            price_point_series.append((wq, hx.round, p / hx.base_prices[job_id])) 
+
+# %%
+df = pd.DataFrame(agent_action_series, columns=['wq', 'round', 'agent_id', 'action'])
+df.groupby(['wq', 'agent_id', 'round']).mean().reset_index().groupby(['wq', 'agent_id', df['round'] // 10]).max().groupby('wq').agg({
+               'action': ['mean', 'sem'],})
+
+
+# %%
+df.groupby(['wq', 'agent_id', df['round'] // 10]).max().groupby('wq').agg({
+               'action': ['mean', 'std'],})
+# %%
+pd.DataFrame(price_point_series, columns=['wq', 'round', 'price']).groupby('wq').agg({
+               'price': ['mean', 'std'],})
+
+# %%
+df.groupby(['wq', 'agent_id', df['round'] // 10], ).max(numeric_only=True).groupby('wq').agg({
+               'action': ['mean', 'std'],})
+
+# %%
+all_winning_prices = []
+for hx in exp_log.history:
+    for job_id, p in hx.winning_prices.items():
+
+        all_winning_prices.append((hx.round, job_id, p / hx.base_prices[job_id]))
+# %%
+pd.DataFrame(all_winning_prices, columns=['round', 'job', 'winning_price_normalized'])
+# %%
+# Two datasets on the same plot with different y-axes (twinx) and error bars.
+# - No connecting lines between points
+# - Small horizontal offset between datasets so they don't overlap
+# - Only horizontal gridlines (no vertical "lines between columns")
+import matplotlib.pyplot as plt
+
+# Example data (replace with yours)
+labels = [0.2, 0.4, 0.6, 0.8]  # optional
+
+# Shared x centers for categories
+x = np.arange(len(p_mean))
+offset = 0.2  # horizontal separation between datasets
+x_a = x - offset/2
+x_b = x + offset/2
+
+fig, ax_left = plt.subplots(figsize=(8, 4))
+ax_right = ax_left.twinx()
+
+# Left y-axis (Dataset A) - markers only, no connecting line
+ax_left.errorbar(
+    x_a, p_mean, yerr=p_std,
+    fmt='o', linestyle='none', capsize=4, elinewidth=1.5, ms=5,
+    color='tab:blue', label='Dataset A'
+)
+ax_left.set_ylabel('Dataset A', color='tab:blue')
+ax_left.tick_params(axis='y', colors='tab:blue')
+
+# Right y-axis (Dataset B) - markers only, no connecting line
+ax_right.errorbar(
+    x_b, s_mean, yerr=s_std,
+    fmt='s', linestyle='none', capsize=4, elinewidth=1.5, ms=5,
+    color='tab:orange', label='Dataset B'
+)
+ax_right.set_ylabel('Dataset B', color='tab:orange')
+ax_right.tick_params(axis='y', colors='tab:orange')
+
+# X axis labels centered between the two offsets
+ax_left.set_xlabel('Reputation Sensitivity (w_q)', fontsize=15)
+if labels is not None:
+    ax_left.set_xticks(x)
+    ax_left.set_xticklabels(labels)
+
+# Only horizontal gridlines (no vertical lines between categories)
+ax_left.grid(True, axis='y', linestyle='--', alpha=0.3)
+
+# Optional: y-limits to cover mean ± std for each axis
+ax_left.set_ylim(0.5, 1)
+ax_right.set_ylim (0, 80)
+
+# X-limits to accommodate the horizontal offsets
+ax_left.set_xlim(x[0] - 0.5 - offset, x[-1] + 0.5 + offset)
+
+# Combined legend from both axes
+h1, l1 = ax_left.get_legend_handles_labels()
+h2, l2 = ax_right.get_legend_handles_labels()
+ax_left.legend(h1 + h2, l1 + l2, loc='best')
+
+plt.tight_layout()
+plt.show()
+
+
 # %%
 # Analysis on changing market conditions
-filepath = 'logs/market_change.log'
+filepath = 'logs/market_change_0.log'
 exp_log = ExperimentLog.load(filepath)
+
+# %%
+agent_rewards = np.array([h.agent_round_rewards for h in exp_log.history])
+
+agent_train_targets = []
+agent_bid_targets = []
+for j in range(5):
+    filepath = f'logs/market_change_{j}.log'
+    exp_log = ExperimentLog.load(filepath)
+    for i in range(4):
+        agent_history = [a for a in exp_log.agents[i].agent_history]
+        for hx in agent_history:
+            ix = hx.round
+            agent_action = hx.agent_action
+            if agent_action.action == 'train':
+                if i <= 2: 
+                    agent_type = 'l2m'
+                else:
+                    agent_type = 'ssa'
+                agent_train_targets.append((ix, agent_type, agent_action.targets[0][0]))
+            elif agent_action.action == 'bid':
+                for rank, target in enumerate(agent_action.targets):
+                    agent_bid_targets.append((ix, agent_type, target[0], target[0][:4], rank))
+# %%
+bid_trace = pd.DataFrame(agent_bid_targets, columns=['round_id', 'agent_type', 'bid', 'job_type', 'rank'])
+bid_trace = bid_trace.groupby(['round_id', 'job_type']).mean(numeric_only=True).reset_index()
+
+trace_a = bid_trace.query('job_type=="JB-A"')
+trace_b = bid_trace.query('job_type=="JB-B"')
+
+plt.plot(trace_a['round_id'], trace_a['rank'], label='SK-A')
+plt.plot(trace_b['round_id'], trace_b['rank'], label='SK-B')
+plt.gca().invert_yaxis()
+plt.yticks(np.arange(4), fontsize=15)
+plt.xticks(fontsize=15)
+ymin, ymax = plt.ylim()
+
+plt.vlines(30, 0.5, 3, linestyles=":", color='red')
+
+plt.ylabel("Bidding Priority", fontsize=20)
+plt.xlabel("Timestep", fontsize=20)
+plt.legend(fontsize=15)
+plt.tight_layout()
+
+
+# %%
+plt.plot(np.cumsum(exp_log.agent_reward_history.T, axis=0))
+
+# %%
+trace_b
+# %%
+train_trace = {s: np.zeros(100) for s in ['SK-A', 'SK-B']}
+
+for train_targets in agent_train_targets:
+    train_trace[train_targets[2]][train_targets[0]] += 1
+# %%
+train_trace
+# %%
+period=2
+smooth = lambda x: pd.Series(x).ewm(span=period).mean()
+
+plt.plot(np.arange(0, 100, 2), smooth(train_trace['SK-A'].reshape(50, 2).mean(axis=1)*5), label='SK-A')
+plt.plot(np.arange(0, 100, 2),smooth(train_trace['SK-B'].reshape(50, 2).mean(axis=1)*5), label='SK-B')
+plt.xticks(fontsize=15)
+plt.yticks(fontsize=15)
+plt.ylabel("Agents Training (%)", fontsize=20)
+plt.xlabel("Timestep", fontsize=20)
+plt.vlines(30, 0, 15, linestyles=':', color='red')
+plt.legend(fontsize=15)
+plt.tight_layout()
+
+# %%
+
+from scipy.stats import kendalltau
+
+def kendall_tau_between(rank_list_t, rank_list_t1):
+    # rank_list_* are lists like ["a","b","c","d"] in decreasing priority
+    # Build position dicts
+    p_t  = {a:i for i,a in enumerate(rank_list_t)}
+    p_t1 = {a:i for i,a in enumerate(rank_list_t1)}
+    # Ensure same agent universe (if not, union + large penalty or restrict to intersection)
+    common = [a for a in p_t if a in p_t1]
+    x = [p_t[a] for a in common]
+    y = [p_t1[a] for a in common]
+    tau, _ = kendalltau(x, y)
+    return tau
+
+# Top-k churn: fraction of entries/exits
+def topk_churn(rank_list_t, rank_list_t1, k=3):
+    S = set(rank_list_t[:k]); T = set(rank_list_t1[:k])
+    return 1 - len(S & T) / k
+
+# Example
+t1 = ["a","b","c","d"]
+t5 = ["b","c","a","d"]
+print("Kendall tau:", kendall_tau_between(t1, t5))
+print("Top-3 churn:", topk_churn(t1, t5, k=3))
 
 
 # %% 
@@ -256,15 +508,19 @@ llm_skill.append(np.array([np.sum([a.action == 'train' for a in hx.agent_actions
 
 # %%
 
-filepath = 'logs/market_recession_ssa_2.log'
+filepath = 'logs/market_recession_ssa2_3.log'
 exp_log = ExperimentLog.load(filepath)
 
 # %%
 ssa_skill = []
-ssa_skill.append(np.array([np.sum([a.action == 'train' for a in hx.agent_actions]) for hx in exp_log.history]))
 
+for fp in os.listdir('logs'):
+    if 'recession' in fp:
+        exp_log = ExperimentLog.load(f'logs/{fp}')
+
+        ssa_skill.append(np.array([np.sum([a.action == 'train' for a in hx.agent_actions]) for hx in exp_log.history]) / len(exp_log.agent_ids))
 # %%
-
+# %%
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -299,10 +555,11 @@ def plot_bool_regions_with_line(bool_array, float_array, x=None):
     ax.legend(fontsize=20)
 
     return fig, ax
-
+# %%
 recession = [True if (round_ix // 10) % 3 == 1 else False for round_ix in range(100)]
-
-plot_bool_regions_with_line(np.array(recession), ssa_skill[0] * 10)
+ssa_skill
+# %%
+plot_bool_regions_with_line(np.array(recession), np.array(ssa_skill).mean(axis=0) * 100)
 # %%
 plt.plot(exp_log.agent_total_rewards, label=exp_log.agent_ids)
 plt.legend()

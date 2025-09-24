@@ -24,6 +24,10 @@ import re
 
 # TODO: ReAct style prompting?? Uhh
 
+# - Your job performance affects payment - poor performance results in partial payment
+# - If you win a bid for the job, you will be paid in full as per your bidding price.
+# - Your job performance SIGNIFICANTLY affects payment - Your payment is calculated as $YOUR BID * (JOB PERFORMANCE / 100)
+
 SYSTEM_BASE = """You are {agent_id}, an AI agent competing in a freelancer marketplace. Your goal is to maximize total earnings by completing jobs.
 
 GAME MECHANICS:
@@ -31,15 +35,15 @@ GAME MECHANICS:
 - Each job lists a reference budget, but you can bid above or below this amount  
 - You can bid on up to 5 jobs per round, potentially winning multiple
 - Clients select agents considering both price and reputation for the required skill
-- Your job performance affects payment - poor performance results in partial payment
-- Skills improve through TRAINING and completing jobs
+- Your job performance will affect your reward - Your payment is calculated as $YOUR BID * (JOB PERFORMANCE / 100)
+- Your job performance is dependent on skill, which improves through TRAINING and completing jobs
 - REPUTATION (out of 5*) is tracked per skill type, reflecting your recent job or benchmark performance from training
 - If you win no jobs after bidding, you have a chance to train in your top-choice job's skill
 - Game ends with 1% probability each round
 
 ACTIONS (choose one per round):
 - BID: Compete for specific jobs by proposing prices. Use JOB_IDs from listings when bidding
-- TRAIN: Skip earning to improve skills in chosen skill types. Use TASK_IDs when training
+- TRAIN: Skip earning to improve skills in chosen skill types. Use SKILL_IDs when training
 
 INFORMATION PROVIDED EACH ROUND:
 1. **MARKET ACTIVITY**: Last 10 rounds showing job_id($budget)→winner(reputation*), and current earnings rankings  

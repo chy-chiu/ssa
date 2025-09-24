@@ -5,13 +5,27 @@ from tqdm import trange
 
 from ssa.agents import ImproveAgent, LLMAgent, OracleAgent, StaticAgent
 from ssa.agents.policy import PolicyAgent
-from ssa.agents.ssa import LLMSSA
+from ssa.agents._ssa import LLMSSA
 from ssa.galeshapley import multi_galeshapley
 from ssa.market import ExperimentLog, Job, LabourMarket
 from ssa.tasks import ProxyAgent, ProxyTask
 from ssa.tasks.cipher import CipherAgent, CipherTask
 from ssa.utils import init_azure_model, init_openrouter_chat_model
 
+# %%
+import seaborn as sns
+
+SNS_RED = sns.color_palette("Set1")[0]
+SNS_BLUE = sns.color_palette("Set1")[1]
+SNS_GREEN = sns.color_palette("Set1")[2]
+SNS_CYAN = sns.color_palette("Set2")[0]
+SNS_ORANGE = sns.color_palette("Set2")[1]
+SNS_BBLUE = sns.color_palette("Set2")[2]
+SNS_BPURPLE = sns.color_palette("Set2")[3]
+SNS_YELLOW = sns.color_palette("Set2")[5]
+SNS_GREY = sns.color_palette("Set2")[7]
+
+# %%
 np.random.seed(13123)
 
 from tqdm import tqdm
@@ -26,16 +40,25 @@ job_p = 0.8
 train_p = 0.2
 n_steps = 100
 
+PERIOD = 5
+
 unemployed = []
-for n_agents in [31, 41, 51]:
-    for n_tasks in [29, 39, 49]:
+unemployed_total = []
+
+for n_agents in np.arange(30, 51, 4):
+    for n_tasks in np.arange(30, 51, 4):
         n_jobs = 1
         task_ids = [f"task_{i}" for i in range(n_tasks)]
 
         tasks = [ProxyTask(t, noise=0.1) for t in task_ids]
 
         jobs = [
-            Job(id=f"{task_id}_{i}", task_id=task_id, job_p=np.clip(job_p + np.random.normal(0, 0.1), 0, 1), base_reward=10)
+            Job(
+                id=f"{task_id}_{i}",
+                task_id=task_id,
+                job_p=np.clip(job_p + np.random.normal(0, 0.1), 0, 1),
+                base_reward=10,
+            )
             for task_id in task_ids
             for i in range(n_jobs)
         ]
@@ -48,8 +71,12 @@ for n_agents in [31, 41, 51]:
             task_preferences = [agent.task_ids[i] for i in np.random.permutation(agent.n_tasks)]
             job_preferences = [agent.job_ids[i] for i in np.random.permutation(agent.n_jobs)]
 
-            agent.set_policy(task_preferences=task_preferences, job_preferences=job_preferences, train_p=np.clip(train_p + np.random.normal(0, 0.1), 0, 1), underbid_factor=0.9)
-
+            agent.set_policy(
+                task_preferences=task_preferences,
+                job_preferences=job_preferences,
+                train_p=np.clip(train_p + np.random.normal(0, 0.1), 0, 1),
+                underbid_factor=0.9,
+            )
 
         market = LabourMarket(
             jobs=jobs,
@@ -69,289 +96,47 @@ for n_agents in [31, 41, 51]:
             market.simulate_timestep()
 
         exp = market.export()
+
+        count = 0
+        unmatched_agents = 0
+        unmatched_jobs = 0
+        total_labor_force = 0
+        unmatched_agent_rate = []
+        unmatched_job_rate = []
 
         for hx in exp.history:
-            labor_force = (n_agents - np.sum([a.action == 'train' for a in hx.agent_actions]))
-            unemployed.append(((len(hx.unmatched_agents) - np.sum([a.action == 'train' for a in hx.agent_actions])) / labor_force, len(hx.unmatched_jobs) / labor_force))
+            count += 1
+            labor_force = n_agents - np.sum([a.action == "train" for a in hx.agent_actions])
+
+            unmatched_agent = len(hx.unmatched_agents) - np.sum([a.action == "train" for a in hx.agent_actions])
+            unmatched_job = len(hx.unmatched_jobs) 
+
+            unmatched_agents += unmatched_agent
+            unmatched_jobs += unmatched_job
+            total_labor_force += labor_force
+
+            unmatched_agent_rate.append(unmatched_agent / labor_force)
+            unmatched_job_rate.append(unmatched_job / labor_force)
+            
+            if count % PERIOD == 0:
+                
+                unemployed_total.append((unmatched_agents / total_labor_force, unmatched_jobs / total_labor_force))
+                unemployed.append((np.mean(unmatched_agent_rate), np.mean(unmatched_job_rate)))
+
+                unmatched_agents = 0
+                unmatched_jobs = 0
+                total_labor_force = 0
+                unmatched_agent_rate = []
+                unmatched_job_rate = []
+
 # %%
 u = np.array(unemployed)
 plt.scatter(u[:, 0], u[:, 1])
-# %%
-_u = u[u[:, 0] != 0]
-_u = _u[_u[:, 1] != 0]
-plt.scatter(_u[:, 0], _u[:, 1])
 # %%
 import numpy as np
 from scipy.optimize import curve_fit
 from scipy.stats import zscore
 import matplotlib.pyplot as plt
-
-def hyperbolic_func(x, a, b, c):
-    """Hyperbolic function: y = a/(x + b) + c"""
-    return a / (x + b) + c
-
-def remove_outliers_residual_based(X, y, func, params, outlier_percent=5):
-    """Remove outliers based on residuals from initial fit"""
-    y_pred = func(X, *params)
-    residuals = np.abs(y - y_pred)
-    threshold = np.percentile(residuals, 100 - outlier_percent)
-    mask = residuals <= threshold
-    return X[mask], y[mask], mask
-
-def remove_outliers_zscore(X, y, z_threshold=2.5):
-    """Remove outliers based on Z-score"""
-    z_scores_x = np.abs(zscore(X))
-    z_scores_y = np.abs(zscore(y))
-    mask = (z_scores_x < z_threshold) & (z_scores_y < z_threshold)
-    return X[mask], y[mask], mask
-
-def fit_hyperbola_with_outlier_removal(data, outlier_percent=5, method='residual'):
-    """
-    Fit hyperbolic curve with outlier removal
-    
-    Parameters:
-    - data: numpy array of shape (n, 2) or tuple (X, y)
-    - outlier_percent: percentage of outliers to remove
-    - method: 'residual' or 'zscore'
-    """
-    
-    # Handle input format
-    if isinstance(data, tuple):
-        X, y = data
-    else:
-        X, y = data[:, 0], data[:, 1]
-    
-    # Initial fit to identify outliers (if using residual method)
-    if method == 'residual':
-        # Robust initial parameter estimation
-        try:
-            initial_params = [np.std(y) * np.mean(X), np.mean(X), np.mean(y)]
-            popt_initial, _ = curve_fit(hyperbolic_func, X, y, p0=initial_params, maxfev=5000)
-        except:
-            # Fallback parameters
-            popt_initial = [1.0, 1.0, np.mean(y)]
-        
-        X_clean, y_clean, mask = remove_outliers_residual_based(
-            X, y, hyperbolic_func, popt_initial, outlier_percent
-        )
-    else:  # zscore method
-        z_threshold = np.sqrt(2 * np.log(100/outlier_percent))  # Convert percentage to z-score
-        X_clean, y_clean, mask = remove_outliers_zscore(X, y, z_threshold)
-    
-    # Final fit on cleaned data
-    try:
-        initial_params = [np.std(y_clean) * np.mean(X_clean), np.mean(X_clean), np.mean(y_clean)]
-        popt_final, pcov = curve_fit(hyperbolic_func, X_clean, y_clean, p0=initial_params, maxfev=5000)
-    except Exception as e:
-        raise RuntimeError(f"Curve fitting failed: {e}")
-    
-    # Calculate fit quality metrics
-    y_pred = hyperbolic_func(X_clean, *popt_final)
-    r_squared = 1 - np.sum((y_clean - y_pred)**2) / np.sum((y_clean - np.mean(y_clean))**2)
-    rmse = np.sqrt(np.mean((y_clean - y_pred)**2))
-    
-    results = {
-        'params': popt_final,
-        'covariance': pcov,
-        'X_clean': X_clean,
-        'y_clean': y_clean,
-        'outlier_mask': mask,
-        'r_squared': r_squared,
-        'rmse': rmse,
-        'outliers_removed': len(X) - len(X_clean)
-    }
-    
-    return results
-
-# Fit with outlier removal
-results = fit_hyperbola_with_outlier_removal(
-    u, 
-    outlier_percent=10, 
-    method='residual'
-)
-
-print(f"Fitted parameters [a, b, c]: {results['params']}")
-print(f"R²: {results['r_squared']:.4f}")
-print(f"RMSE: {results['rmse']:.4f}")
-print(f"Outliers removed: {results['outliers_removed']}")
-
-# Plot results
-X = _u[:,0]
-y = _u[:,1]
-plt.figure(figsize=(7, 6))
-# plt.scatter(X, y, label='Original data', s=10)
-plt.xlim(0, 0.4)
-plt.ylim(0, 0.4)
-plt.scatter(results['X_clean'], results['y_clean'], color='tab:blue', alpha=0.8, s=5, label='data')
-
-
-X_plot = np.linspace(np.min(X), 0.4, 1000)
-y_plot = hyperbolic_func(X_plot, *results['params'])
-plt.plot(X_plot, y_plot, 'r-', label=f'Fitted curve: y = {results["params"][0]:.2f}/(x + {results["params"][1]:.2f}) + {results["params"][2]:.2f}')
-
-plt.xlabel('Unemployment Rate (%)', fontsize=20)
-plt.ylabel('Job Vacancy Rate (%)', fontsize=20)
-plt.xticks(fontsize=15)
-plt.yticks(fontsize=15)
-# plt.legend()
-plt.grid(True, alpha=0.3)
-plt.show()
-
-# %%
-def gini(wealth):
-    wealth = np.sort(wealth[wealth >= 0])
-    n = len(wealth)
-    cumsum = np.cumsum(wealth)
-    return 1 - (2 * np.sum(cumsum)) / (n * cumsum[-1]) + 1 / n
-
-total_n_jobs = 64
-n_agents = 32
-agent_pref_limit = 5
-market_pref_limit = 100
-all_r = []
-for market_limit in [1, 3, 5]:
-    for job_task_r in [1, 2, 4, 8, 16, 32, 64]:
-        n_tasks = total_n_jobs // job_task_r
-        n_jobs = total_n_jobs // n_tasks
-
-        task_ids = [f"task_{i}" for i in range(n_tasks)]
-
-        tasks = [ProxyTask(t, noise=0.1) for t in task_ids]
-
-        jobs = [
-            Job(id=f"{task_id}_{i}", task_id=task_id, job_p=np.clip(job_p + np.random.normal(0, 0.1), 0, 1), base_reward=10)
-            for task_id in task_ids
-            for i in range(n_jobs)
-        ]
-
-        agents = [PolicyAgent(agent_id=f"pol_{i}", jobs=jobs, model=None, verbose=False) for i in range(n_agents)]
-
-        for agent in agents:
-            agent.set_policy(train_p=np.clip(train_p + np.random.normal(0, 0.1), 0, 1))
-        
-        market = LabourMarket(
-            jobs=jobs,
-            market_pref_limit=market_pref_limit,
-            agent_pref_limit=agent_pref_limit,
-            market_limit=market_limit,
-            tasks=tasks,
-            agents=agents,
-            skill_phi=0.1,
-            rep_window=50,
-            rep_lambda=0.5,
-            rep_sensitivity=2,
-            gumbel_t=0.001,
-        )
-
-        for _ in trange(50):
-            market.simulate_timestep()
-
-        exp = market.export()
-
-        exp.agent_total_rewards
-
-        e = [gini(np.array(r)) for r in exp.agent_total_rewards]
-        all_r.append([job_task_r, market_limit, np.mean(e), np.std(e)])
-# %%
-# from ssa.utils import  generate_gini_table
-print(generate_gini_table(all_r))
-# %%
-# exp_log = market.export()
-
-listings_by_job = {
-    "task_0_0": 100.0,
-    "task_0_1": 200.0,
-    "task_0_2": 300.0,
-    "task_0_3": 400.0,  # Job with no bids
-}
-agent_pricing = [
-    {"task_0_1": 90, "task_0_2": 290},  # Agent 0 bids
-    {"task_0_1": 110, "task_0_2": 180},  # Agent 1 bids
-    {"task_0_1": 100, "task_0_2": 50},  # Agent 2 bids (job_X is not in listings)
-]
-
-print(market.generate_market_preference(listings_by_job, agent_pricing))
-print(market.generate_market_preference_optimized(listings_by_job, agent_pricing))
-# %%
-u = np.array(unemployed)
-plt.scatter(u[:, 0], u[:, 1])
-plt.ylabel("job vacancy")
-plt.xlabel("unemployment")
-
-# %%
-_unemployed = []
-from tqdm import tqdm
-
-n_tasks = 4
-n_jobs = 4
-n_agents = 10
-market_limit = 1
-market_pref_limit = 10
-agent_pref_limit = 5
-job_p = 0.8
-train_p = 0.2
-n_steps = 100
-# for market_pref_limit in [5, 10]:
-#     for agent_pref_limit in [3, 5]:
-
-task_ids = [f"task_{i}" for i in range(n_tasks)]
-tasks = [ProxyTask(t, noise=0.1) for t in task_ids]
-
-jobs = [
-    Job(id=f"{task_id}_{i}", task_id=task_id, job_p=job_p, base_reward=10)
-    for task_id in task_ids
-    for i in range(n_jobs)
-]
-
-agents = [PolicyAgent(agent_id=f"pol_{i}", jobs=jobs, model=None, verbose=False) for i in range(n_agents)]
-
-for agent in agents:
-    agent.set_policy(train_p=train_p)
-for agent in agents[:70]:
-    task_preferences = [agent.task_ids[i] for i in np.random.permutation(agent.n_tasks)]
-    agent.set_policy(task_preferences=task_preferences, train_p=train_p, underbid_factor=0.9)
-
-market = LabourMarket(
-    jobs=jobs,
-    market_pref_limit=market_pref_limit,
-    agent_pref_limit=agent_pref_limit,
-    market_limit=market_limit,
-    tasks=tasks,
-    agents=agents,
-    skill_phi=0.1,
-    rep_window=20,
-    rep_lambda=0.5,
-    rep_sensitivity=2,
-    gumbel_t=0.0,
-)
-for _ in trange(n_steps):
-    market.simulate_timestep()
-
-exp_log = market.export()
-
-for hx in exp_log.history:
-    _unemployed.append(
-        (
-            (len(hx.unmatched_agents) - np.sum([a.action == "train" for a in hx.agent_actions]))
-            / (n_agents - np.sum([a.action == "train" for a in hx.agent_actions])),
-            len(hx.unmatched_jobs) / len(hx.base_prices),
-        )
-    )
-# %%
-
-u = np.array(_unemployed)
-plt.scatter(u[:, 0], u[:, 1])
-plt.ylabel("job vacancy")
-plt.xlabel("unemployment")
-plt.xticks(fontsize=20)
-
-
-import matplotlib.pyplot as plt
-
-# %%
-import numpy as np
-from scipy.optimize import curve_fit
-from scipy.stats import zscore
 
 
 def hyperbolic_func(x, a, b, c):
@@ -445,45 +230,184 @@ print(f"Outliers removed: {results['outliers_removed']}")
 X = u[:, 0]
 y = u[:, 1]
 plt.figure(figsize=(7, 6))
-# plt.scatter(X, y, alpha=0.6, label='Original data')
-plt.scatter(results["X_clean"], results["y_clean"], color="tab:blue", alpha=0.8, s=5, label="data")
+# plt.scatter(X, y, label='Original data', s=10)
+plt.scatter(results["X_clean"], results["y_clean"], color=SNS_GREY, alpha=0.8, s=10, label="data")
+
 
 X_plot = np.linspace(np.min(X), 0.4, 1000)
 y_plot = hyperbolic_func(X_plot, *results["params"])
 plt.plot(
     X_plot,
     y_plot,
-    "r-",
+    color=SNS_RED,
+    linewidth=3,
     label=f'Fitted curve: y = {results["params"][0]:.2f}/(x + {results["params"][1]:.2f}) + {results["params"][2]:.2f}',
 )
 
-plt.xlabel("Unemployment Rate (%)")
-plt.ylabel("Job Vacancy Rate (%)")
+plt.xlabel("Unemployment Rate (%)", fontsize=20)
+plt.ylabel("Job Vacancy Rate (%)", fontsize=20)
+plt.xticks(fontsize=15)
+plt.yticks(fontsize=15)
 # plt.legend()
 plt.grid(True, alpha=0.3)
 plt.show()
 
 
 # %%
-unemployed
+PERIOD = 5
+def gini(wealth):
+    wealth = np.sort(wealth[wealth >= 0])
+    n = len(wealth)
+    cumsum = np.cumsum(wealth)
+    return 1 - (2 * np.sum(cumsum)) / (n * cumsum[-1]) + 1 / n
+
+total_n_jobs = 64
+n_agents = 32
+agent_pref_limit = 16
+market_pref_limit = 100
+# all_r = []
+for _ in range(3):
+    for market_limit in range(1, 9):
+        for job_task_r in [1, 4, 16, 64]:
+            n_tasks = total_n_jobs // job_task_r
+            n_jobs = total_n_jobs // n_tasks
+
+            task_ids = [f"task_{i}" for i in range(n_tasks)]
+
+            tasks = [ProxyTask(t, noise=0.1) for t in task_ids]
+
+            jobs = [
+                Job(
+                    id=f"{task_id}_{i}",
+                    task_id=task_id,
+                    job_p=np.clip(job_p + np.random.normal(0, 0.1), 0, 1),
+                    base_reward=10,
+                )
+                for task_id in task_ids
+                for i in range(n_jobs)
+            ]
+
+            agents = [PolicyAgent(agent_id=f"pol_{i}", jobs=jobs, model=None, verbose=False) for i in range(n_agents)]
+
+            for agent in agents:
+                agent.set_policy(train_p=np.clip(train_p + np.random.normal(0, 0.1), 0, 1))
+
+            market = LabourMarket(
+                jobs=jobs,
+                market_pref_limit=market_pref_limit,
+                agent_pref_limit=agent_pref_limit,
+                market_limit=market_limit,
+                tasks=tasks,
+                agents=agents,
+                skill_phi=0.1,
+                rep_window=50,
+                rep_lambda=0.5,
+                rep_sensitivity=2,
+                gumbel_t=0.001,
+            )
+
+            for _ in trange(50):
+                market.simulate_timestep()
+
+            exp = market.export()
+
+            period_rewards = exp.agent_reward_history.reshape((n_agents, PERIOD, -1)).sum(axis=1)
+
+            period_e = [gini(np.array(r)) for r in period_rewards if sum(r) > 0]
+            e = [gini(np.array(r)) for r in exp.agent_total_rewards]
+            all_r.append([job_task_r, market_limit, np.mean(e), np.std(e), np.std(e) / len(e), np.mean(period_e), np.std(period_e), np.std(period_e) / len(period_e)])
+# %%
+import pandas as pd
+gini_df = pd.DataFrame(all_r, columns=["ratio", "parallel", "mean_e", "std_e", "sem_e", "mean_pe", "std_pe", "sem_pe"])
+gini_df
+# %%
+fig, ax = plt.subplots(1, 1)
+
+for ix, ratio in enumerate([1, 4, 16, 64][::-1]):
+    _df = gini_df.query('ratio == @ratio').groupby('parallel').max().reset_index()
+    ax.plot(_df.parallel, _df.mean_pe, linewidth=2, color=sns.color_palette("viridis")[5 - ix], label=f'B={64 // ratio}')
+ax.set_ylabel("Gini Coefficient", fontsize=20)
+ax.set_xlabel("Concurrent Job Capacity", fontsize=20)
+ax.set_yticks((0.2, 0.4, 0.6))
+ax.tick_params(axis='both', which='major', labelsize=18)
+ax.legend(fontsize=15)
+ax.grid(True, alpha=0.3)
+
 
 # %%
-u = np.array(unemployed)
+_unemployed = []
+from tqdm import tqdm
 
+n_tasks = 4
+n_jobs = 4
+n_agents = 10
+market_limit = 1
+market_pref_limit = 10
+agent_pref_limit = 5
+job_p = 0.8
+train_p = 0.2
+n_steps = 100
+for market_pref_limit in [5, 10]:
+    for agent_pref_limit in [3, 5]:
+
+        task_ids = [f"task_{i}" for i in range(n_tasks)]
+        tasks = [ProxyTask(t, noise=0.1) for t in task_ids]
+
+        jobs = [
+            Job(id=f"{task_id}_{i}", task_id=task_id, job_p=job_p, base_reward=10)
+            for task_id in task_ids
+            for i in range(n_jobs)
+        ]
+
+        agents = [PolicyAgent(agent_id=f"pol_{i}", jobs=jobs, model=None, verbose=False) for i in range(n_agents)]
+
+        for agent in agents:
+            agent.set_policy(train_p=train_p)
+        for agent in agents[:70]:
+            task_preferences = [agent.task_ids[i] for i in np.random.permutation(agent.n_tasks)]
+            agent.set_policy(task_preferences=task_preferences, train_p=train_p, underbid_factor=0.9)
+
+        market = LabourMarket(
+            jobs=jobs,
+            market_pref_limit=market_pref_limit,
+            agent_pref_limit=agent_pref_limit,
+            market_limit=market_limit,
+            tasks=tasks,
+            agents=agents,
+            skill_phi=0.1,
+            rep_window=20,
+            rep_lambda=0.5,
+            rep_sensitivity=2,
+            gumbel_t=0.0,
+        )
+        for _ in trange(n_steps):
+            market.simulate_timestep()
+
+        exp_log = market.export()
+
+        for hx in exp_log.history:
+            _unemployed.append(
+                (
+                    (len(hx.unmatched_agents) - np.sum([a.action == "train" for a in hx.agent_actions]))
+                    / (n_agents - np.sum([a.action == "train" for a in hx.agent_actions])),
+                    len(hx.unmatched_jobs) / len(hx.base_prices),
+                )
+            )
+# %%
+
+u = np.array(_unemployed)
+plt.scatter(u[:, 0], u[:, 1])
+plt.ylabel("job vacancy")
+plt.xlabel("unemployment")
+plt.xticks(fontsize=20)
+
+
+import matplotlib.pyplot as plt
 
 # %%
 u = np.array(unemployed).reshape(500, 5, 2).mean(axis=1)
 
 # %%
-u = np.array(unemployed)
-u[:, 1] = 1 - u[:, 1]
-u2 = u.reshape(100, 25, 2).mean(axis=1)
-u2_diff = np.diff(u2, axis=0)
-
-unemployed_rate = u2_diff[:, 0]
-gdp = u2_diff[:, 1]
-plt.scatter(gdp, unemployed_rate)
-
 
 # %%
 u = np.array(unemployed)
@@ -714,7 +638,7 @@ def plot_regression_results(X_orig, y_orig, results, title="Linear Regression wi
 
 
 # %%
-
+len(unemployed)
 
 # %%
 unemployed_rate = u_diff[:, 0]
@@ -936,7 +860,7 @@ from tqdm import trange
 
 from ssa.agents import ImproveAgent, LLMAgent, OracleAgent, StaticAgent
 from ssa.agents.policy import PolicyAgent
-from ssa.agents.ssa import LLMSSA
+from ssa.agents._ssa import LLMSSA
 
 # %%
 # %%
@@ -1073,5 +997,6 @@ allocations = [history.matched_jobs for history in exp_log.history]
 
 fig, ax = plt.subplots(figsize=(12, 6))
 ax = plot_allocation(ax, allocation=allocations)
+
 
 # %%

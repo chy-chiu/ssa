@@ -4,7 +4,7 @@
 from ssa.galeshapley import multi_galeshapley
 from ssa.market import LabourMarket, ExperimentLog, Job
 from ssa.agents import StaticAgent, LLMAgent, OracleAgent, ImproveAgent, LLM2Agent
-from ssa.agents.ssa import LLMSSA
+from ssa.agents._ssa import LLMSSA
 from ssa.agents.policy import PolicyAgent
 from ssa.tasks.cipher import CipherAgent, CipherTask
 from ssa.tasks import ProxyAgent, ProxyTask

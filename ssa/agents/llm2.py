@@ -39,7 +39,7 @@ GAME MECHANICS:
 
 ACTIONS (choose one per round):
 - BID: Compete for specific jobs by proposing prices. Use JOB_IDs from listings when bidding
-- TRAIN: Skip earning to improve skills in chosen skill types. Use TASK_IDs when training
+- TRAIN: Skip earning to improve skills in chosen skill types. Use SKILL_IDs when training
 
 INFORMATION PROVIDED EACH ROUND:
 1. **MARKET ACTIVITY**: Last 10 rounds showing job_id($budget)→winner(reputation*), and current earnings rankings  
