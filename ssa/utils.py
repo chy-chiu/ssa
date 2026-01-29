@@ -1,3 +1,5 @@
+# %%
+# 
 from langchain_openai import ChatOpenAI, AzureChatOpenAI
 import yaml
 from openai import OpenAI
@@ -255,3 +257,9 @@ def generate_gini_table(data_tuples):
     latex += "\\end{table}"
     
     return latex
+
+
+# # %%
+# model = init_azure_model(secrets_path='assets/secrets.yaml')
+# model.invoke('test')
+# # %%

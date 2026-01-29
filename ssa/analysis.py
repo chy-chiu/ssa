@@ -1,33 +1,35 @@
-# %%
-from ssa.common import RoundData, ExperimentLog
-
-
-def format_trace(trace):
-    for t in trace:
-        print(t[2].reasoning)
-
-
-def format_trace_history(trace, history):
-    for t, h in zip(trace, history):
-        print("reasoning: ", t[2].reasoning)
-        print("action: ", h)
-        print("=====")
-
 
 import numpy as np
-from scipy.stats import rankdata
+from scipy.stats import rankdata, entropy
 import pandas as pd
-
-
-# %%
-
-fp = "logs/llm_baseline_full_p_0.log"
-exp_log = ExperimentLog.load(fp)
-
 from collections import defaultdict
 
+PROFIT_MARGIN = 0.5
 
-# %%
+def get_utility(hx): 
+    # return np.sum([t / hx.base_prices[i] for i, t in hx.winning_prices.items()]) / len(hx.base_prices)
+    # return np.sum([t[1] for t in hx.job_performance.values()]) / len(hx.winning_prices)
+
+    utility = []
+    for idx, price in hx.winning_prices.items():
+        
+        produced_value = hx.job_performance[idx][1]
+
+        cost = price / hx.base_prices[idx]
+
+        utility.append(produced_value + PROFIT_MARGIN - cost)
+    return np.sum(utility) / len(hx.winning_prices)
+
+def compute_trace_means(traces):
+    time_values = defaultdict(list)
+    [time_values[t].append(v) for trace in traces for t, v in trace if v < 2]
+    return np.array([(t, float(np.mean(vs))) for t, vs in sorted(time_values.items())])
+
+def interp_trace(trace):
+    times, values = zip(*trace)
+    return np.interp(np.arange(100), times, values)
+
+
 def recovery_score(reward_traces):
     n_agents, n_steps = reward_traces.shape
 
@@ -39,7 +41,6 @@ def recovery_score(reward_traces):
     recovery_rates = improvements.sum(axis=1) / (n_steps - 1)
 
     return recovery_rates, ranks.max(axis=1) - ranks.min(axis=1)
-
 
 def calculate_specialization(skill_vector, init=40):
     skills = np.array(skill_vector, dtype=float) - init
@@ -102,6 +103,8 @@ def get_summary_df(exp_log, fp=""):
 
     df = pd.DataFrame(rows)
     df = df.join(pd.get_dummies(df["action"]))
+    if 'error' not in df:
+        df['error'] = 0
 
     df.groupby("agent_id").train_target.nunique()
     df.query('agent_id=="goog"')
@@ -229,62 +232,3 @@ def get_summary_df(exp_log, fp=""):
         ]
     )
 
-
-# %%
-from scipy.stats import entropy
-
-# %%
-# %%
-
-# %%
-# %%
-
-
-# %%
-agent.reputation
-# %%
-df = get_summary_df(exp_log, fp)
-df
-
-# %%
-
-# %%
-"""Cumulative Reward 
-(and cumulative normalized reward)
-Period Reward
-Rank - Average and Final - ? done
-Specialization
-Consistency (e.g. same or different actions??)
-Train %
-Total skill level
-Win rate
-Risk aversion (as measured by rank of price jobs..), top and average
-win priority - are you winning the good jobs or low priority jobs? 
-Ability to recover (rank changes)
-"""
-
-
-# %%
-# Calculate ranks (lower rank = better performance)
-n_steps = 100
-ranks = np.array([rankdata(-reward_traces[:, t]) for t in range(n_steps)]).T
-
-# Count upward movements (rank decreases)
-improvements = np.diff(ranks, axis=1) < 0
-# %%
-improvements
-# %%
-import matplotlib.pyplot as plt
-
-plt.plot()
-# %%
-
-
-# %%
-
-## Calculate: win rate, risk aversity, consistency
-exp_log.agent_ids
-
-hx = exp_log.history[0]
-# %%
-# %%

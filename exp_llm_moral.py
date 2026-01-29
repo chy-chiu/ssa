@@ -20,7 +20,7 @@ for k in range(3):
     task_suffix = ["A", "B", "C"] #, "D"]
     task_ids = [f"SK-{i}" for i in task_suffix]
 
-    tasks = [ProxyTask(t, noise=0.05) for t in task_ids]
+    tasks = [ProxyTask(t, noise=0.1) for t in task_ids]
 
     jobs = [
         Job(id=f"JB-{sfx}{i}", task_id=f"SK-{sfx}", job_p=0.8, noise=0.5, base_reward=10 - i * 2)
@@ -41,7 +41,7 @@ for k in range(3):
         market_pref_limit=5,
         tasks=tasks,
         agents=agents,
-        skill_phi=0.05,
+        skill_phi=0.01,
         rep_window=5,
         rep_lambda=0.5,
         rep_sensitivity=1,
@@ -51,4 +51,4 @@ for k in range(3):
     for _ in range(100):
         logger.info(market.simulate_timestep())
 
-    exp_log = market.export(f"logs/moral/partial_{k}.log")
+    exp_log = market.export(f"logs/moral/full_{k}.log")

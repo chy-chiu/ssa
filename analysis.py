@@ -255,7 +255,7 @@ for j in range(4):
             else:
                 agent_type = 'ssa'
             if agent_action.action == 'train':
-                print(agent_action.targets[0][0])
+                # print(agent_action.targets[0][0])
                 agent_train_targets.append((ix, agent_type, agent_action.targets[0][0]))
             elif agent_action.action == 'bid':
                 for rank, target in enumerate(agent_action.targets):
@@ -310,16 +310,35 @@ for wq in [0.1, 0.3, 0.5, 0.7, 0.9, '0.3b']:
 
 # %%
 df = pd.DataFrame(agent_action_series, columns=['wq', 'round', 'agent_id', 'action'])
-df.groupby(['wq', 'agent_id', 'round']).mean().reset_index().groupby(['wq', 'agent_id', df['round'] // 10]).max().groupby('wq').agg({
+df = df.groupby(['wq', 'agent_id', 'round']).mean().reset_index().groupby(['wq', 'agent_id', df['round'] // 10]).max().groupby('wq').agg({
                'action': ['mean', 'sem'],})
 
 
 # %%
-df.groupby(['wq', 'agent_id', df['round'] // 10]).max().groupby('wq').agg({
-               'action': ['mean', 'std'],})
+df = df.groupby(['wq', 'agent_id', df['round'] // 10]).max().groupby('wq').agg({
+               'action': ['mean', 'sem'],})
+df
 # %%
-pd.DataFrame(price_point_series, columns=['wq', 'round', 'price']).groupby('wq').agg({
+pdf = pd.DataFrame(price_point_series, columns=['wq', 'round', 'price']).groupby('wq').agg({
                'price': ['mean', 'std'],})
+
+fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(12, 5))
+ax0.errorbar(pdf['price']['mean'], pdf.index, xerr=pdf['price']['std'], linestyle='', linewidth=2, capsize=5, marker='o')
+ax0.set_yticks(pdf.index)
+ax0.tick_params(labelsize=20)
+ax0.set_ylabel("Reputation Sensitivity", fontsize=20)
+ax0.set_xlabel("Normalized Winning Price", fontsize=20)
+
+ax1.errorbar(df['action']['mean'], df.index, xerr=df['action']['sem'], linestyle='', linewidth=2, capsize=5, marker='o')
+ax1.set_yticks(pdf.index)
+ax1.tick_params(labelsize=20)
+ax1.set_xlabel("Agent likelihood to train (%)", fontsize=20)
+
+
+ax1.set_yticks([])
+plt.tight_layout()
+# %%
+df['action']['mean']
 
 # %%
 df.groupby(['wq', 'agent_id', df['round'] // 10], ).max(numeric_only=True).groupby('wq').agg({

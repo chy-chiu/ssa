@@ -35,9 +35,9 @@ GAME MECHANICS:
 - Each job lists a reference budget, but you can bid above or below this amount  
 - You can bid on up to 5 jobs per round, potentially winning multiple
 - Clients select agents considering both price and reputation for the required skill
-- Your job performance will affect your reward - Your payment is calculated as $YOUR BID * (JOB PERFORMANCE / 100)
-- Your job performance is dependent on skill, which improves through TRAINING and completing jobs
+- If you win a bid for the job, you will be paid in full as per your bidding price.
 - REPUTATION (out of 5*) is tracked per skill type, reflecting your recent job or benchmark performance from training
+- Your job performance is dependent on skill, which improves through TRAINING and completing jobs
 - If you win no jobs after bidding, you have a chance to train in your top-choice job's skill
 - Game ends with 1% probability each round
 

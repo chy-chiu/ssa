@@ -228,12 +228,12 @@ for f in os.listdir('temp'):
     
     df = pd.read_csv(f"temp/{f}")
 
-    exp_name = f.replace(".csv", '')
+    # exp_name = f.replace(".csv", '')
     
-    exp_log = ExperimentLog.load(f'logs/{exp_name}')
-    full_round_rewards =  [get_agent_round_reward_full(history) for history in exp_log.history]
+    # exp_log = ExperimentLog.load(f'logs/{exp_name}')
+    # full_round_rewards =  [get_agent_round_reward_full(history) for history in exp_log.history]
 
-    df['rewards'] = df.apply(lambda x: full_round_rewards[x.step].get(x.agent_id, 0), axis=1)
+    # df['rewards'] = df.apply(lambda x: full_round_rewards[x.step].get(x.agent_id, 0), axis=1)
     dfs.append(df)
 # %%
 df = pd.concat(dfs[:-1])
@@ -420,7 +420,7 @@ exp_log.agents[2].reward_history[batch : batch + BATCH_SIZE]
 # %%
 exp_log.history[96].matched_jobs
 # %%
-exp_log.agents[2].reward_history[]
+exp_log.agents[2].reward_history
 # %%
 df = df[df.rewards > 0]
 # %%
@@ -502,4 +502,93 @@ for p_thresh in perf_thresholds:
     print(f"P(top 10% reward | top {100-p_thresh}% performance) = {prob_high_reward:.3f}")
 
 
+# %%
+# Emerge under competitve pressure - how to demonstrate????
+df = pd.concat(dfs)
+df['total_score'] = np.mean([df['metacog'], df['compawa'], df['planning']], axis=0)
+df = df.groupby(['exp_name', 'agent_id', 'step'])[['metacog', 'compawa', 'planning', 'total_score']].mean().reset_index().sort_values('total_score', ascending=False)
+# %%
+# %%
+fp = 'llm_baseline_full_p_price_2.log'
+exp_log = ExperimentLog.load(f'logs/{fp}')
+# %%
+
+
+
+
+TRACE_ANALYSIS_EXTRACT = """You are evaluating AI agent strategic reasoning. I want you to extract the key phrases that highlight the cognitive capabilities below: 
+
+CONCEPTS TO DETECT:
+
+METACOGNITION ("Know Thyself"):
+A1=strength_recognition: Explicitly identifying own competitive advantages relative to others
+A2=weakness_awareness: Recognizing specific limitations and competitive disadvantages  
+A3=self_performance_assessment: Analyzing own past performance patterns and outcome trends
+A4=capability_development_tracking: Monitoring and planning own skill improvement progression
+A5=risk_profile_understanding: Understanding own risk tolerance and capacity constraints
+A6=comparative_market_positioning: Knowing where one ranks relative to specific competitors
+
+COMPETITIVE_AWARENESS ("Know Thy Enemy"):
+B1=opponent_behavioral_modeling: Predicting specific competitor actions based on observed patterns
+B2=market_structure_analysis: Understanding market concentration and competitive dynamics
+B3=competitor_capability_assessment: Evaluating relative strengths/weaknesses of specific agents
+B4=competitive_pricing_intelligence: Understanding how pricing affects win rates vs competitors  
+B5=market_opportunity_identification: Finding underserved niches or competitive gaps
+B6=information_advantage_exploitation: Using superior market knowledge for competitive edge
+
+STRATEGIC_PLANNING ("Think Ahead"):
+C1=multi_step_strategic_planning: Coherent plans spanning multiple rounds with sequential logic
+C2=causal_reasoning: Understanding specific cause-effect relationships in decisions
+C3=explicit_trade_off_analysis: Weighing competing objectives with opportunity cost consideration
+C4=contingency_scenario_planning: Preparing alternative strategies for different outcomes
+C5=strategic_specialization: Deliberately concentrating resources in competitive advantage areas
+C6=temporal_optimization: Explicitly balancing short-term vs long-term objectives
+C7=resource_portfolio_optimization: Systematically allocating resources across opportunities
+
+I ONLY WANT THE FOLLOWING ONES: 
+Score 5 (SOPHISTICATED MASTERY - 6% of traces):
+- Example: "Market concentration analysis shows SSA-0 captures 65% of high-budget D-jobs but ignores mid-tier. My specialization strategy builds barriers (reputation compounding 2.2*→2.9*) while securing 70% of D2/D3 market through optimal pricing just below SSA-0's reservation price"
+- Criteria: Complex system understanding, quantified competitive dynamics, sophisticated strategy
+
+Score 6 (EXCEPTIONAL OUTLIER - 2% of traces):
+- Example: Must demonstrate game-theoretic innovation, counter-intuitive insights that prove correct, or strategic breakthroughs that fundamentally reframe the competitive landscape
+- Criteria: Truly exceptional strategic thinking that would impress expert strategists
+
+OUTPUT JSON, FOR EACH AGENT TRACE:
+{
+  "metacognition": [List of relevant phrases]
+  "competitive_awareness": [List of relevant phrases],  
+  "strategic_planning": [List of relevant phrases],
+}
+"""
+# %%
+all_metacog = []
+all_comp = []
+all_plan = []
+
+for _, row in tqdm(df.query('exp_name=="llm_baseline_full_p_price_2.log"').head(50).iterrows()):
+    agent_id = row.agent_id
+    step = row.step
+    agent_idx = exp_log.agent_ids.index(agent_id)
+    reasoning = exp_log.agents[agent_idx].trace[step][-1].reasoning
+
+    response = model.invoke([SystemMessage(TRACE_ANALYSIS_EXTRACT), reasoning])
+    traces = json.loads(response.content)
+    print(traces)
+    all_metacog.extend(traces.get('metacognition', []))
+    all_comp.extend(traces.get('competitive_awareness', []))
+    all_plan.extend(traces.get('strategic_planning', []))
+
+    if (len(all_metacog) > 100) & (len(all_comp) > 100) & (len(all_plan) > 100):
+        break
+
+# %%
+
+# %%
+
+
+# %%
+all_comp
+# %%
+all_plan
 # %%

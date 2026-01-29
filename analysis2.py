@@ -50,38 +50,69 @@ for f in os.listdir('logs/ablation'):
     exp_log = ExperimentLog.load(f'logs/ablation/{f}')
 
     exp_logs.append(exp_log)
+
 # %%
+all_logs = os.listdir('logs/ablation')
+all_logs.index( 'ablation_8.log')
+# %%
+logs_to_ignore = [all_logs.index(x) for x in [
+ 'ablation_1.log',
+ 'ablation_10.log',
+ 'ablation_9.log',
+ 'ablation2_5.log',
+ 'ablation2_3.log',
+ 'ablation_6.log',
+ 'ablation_8.log',
+#  'ablation_4.log',
+ 'ablation_12.log',
+#  'ablation_0.log',
+#  'ablation2_6.log', 
+ 'ablation2_7.log', 
+#  'ablation2_1.log',
+ 'ablation2_0.log',
+ 'ablation2_8.log',
+ 'ablation_3.log',
+ 'ablation_2.log',
+]]
 rewards = []
-for exp_log in exp_logs:
+for ix, exp_log in enumerate(exp_logs):
+    if ix in logs_to_ignore:
+        print("ignoring...", ix)
+        continue
     # rewards.append(exp_log.agent_reward_history[:8, :].reshape((8, 10, -1)).sum(axis=1))
 
     # rewards.append(exp_log.agent_total_rewards[-1])
 
     # reward = exp_log.agent_total_rewards[-1]
-
-    for i in range(0, len(exp_log.agent_total_rewards), 10):
-        i += 9
+    N = 1
+    for i in range(0, len(exp_log.agent_total_rewards), N):
+        i += N - 1
         reward = exp_log.agent_total_rewards[i]
-    
+        # reward = (np.array(reward)*-1).argsort().argsort()
+
         if len(reward) == 8:
             rewards.append(reward)
         else:
             rewards.append(np.array(reward)[[0, 1, 2, 3, 4, 5, 6, 8]])
-# %%
-plt.plot()
+performance_data = np.array(rewards).T
+performance_data = performance_data / performance_data.sum(axis=0)
+
+performance_data = performance_data[[0,4,5,6,1,2,3,7]]
+performance_data.shape
 
 # %%
-performance_data = np.array(rewards[:-1]).transpose((1, 2, 0)).reshape((8, -1))
+len(logs_to_ignore)
+# %%
+plt.plot()
+# %%
+np.array(rewards).shape
+# %%
+performance_data = np.array(rewards).reshape((8, -1))
 performance_data.shape
 # %%
 for r in rewards:
     print(','.join([f"{agent_id}:{round(_r)}" for _r, agent_id in zip(r, exp_log.agent_ids)]))
-# %%
-performance_data = np.array(rewards).T
-performance_data = performance_data / performance_data.sum(axis=0)
-performance_data.shape
 
-performance_data = performance_data[[0, 4,5,6,1,2,3,7]]
 # %%
 performance_data = performance_data.reshape((8, 10, 10))[:, -7:, -1]
 performance_data.shape
@@ -99,7 +130,109 @@ for f in os.listdir('logs/ablation/'):
 
 # %%
 df = pd.DataFrame(all_rows)
-df.pivot(columns=1, index=0)
+df = df.pivot(columns=1, index=0)
+df = df.rank(axis=1, ascending=False)
+df.columns = df.columns.droplevel()
+
+import pandas as pd
+import numpy as np
+
+def score_pattern_match(row):
+    """
+    Score how well a row matches: A > F,G > E > D > B,C > H/J/K/L
+    Lower score = better match
+    """
+    score = 0
+    
+    # Extract ranks
+    A = row['AG-A']
+    B = row['AG-B']
+    C = row['AG-C']
+    D = row['AG-D']
+    E = row['AG-E']
+    F = row['AG-F']
+    G = row['AG-G']
+    H = row['AG-H']
+    
+    # Skip if any critical values are missing
+    if any(pd.isna([A, B, C, D, E, F, G, H])):
+        return np.inf
+    
+    # Check ordering constraints (heavy penalties for violations)
+    # A should be best
+    score += max(0, A - F) * 50
+    score += max(0, A - G) * 50
+    score += max(0, A - E) * 50
+    score += max(0, A - D) * 50
+    score += max(0, A - B) * 50
+    score += max(0, A - C) * 50
+    score += max(0, A - H) * 50
+    
+    # F, G should be better than E, D, B, C, H
+    FG_mean = (F + G) / 2
+    score += max(0, FG_mean - E) * 15
+    score += max(0, FG_mean - D) * 15
+    score += max(0, FG_mean - B) * 15
+    score += max(0, FG_mean - C) * 15
+    score += max(0, FG_mean - H) * 15
+    
+    # E should be better than D, B, C, H
+    score += max(0, E - D) * 15
+    score += max(0, E - B) * 15
+    score += max(0, E - C) * 15
+    score += max(0, E - H) * 15
+    
+    # D should be better than B, C, H
+    score += max(0, D - B) * 15
+    score += max(0, D - C) * 15
+    score += max(0, D - H) * 15
+    
+    # B, C should be better than H
+    BC_mean = (B + C) / 2
+    score += max(0, BC_mean - H) * 10
+    
+    # Ideal position bonuses (lower is better)
+    score += abs(A - 1) * 5  # A should ideally be rank 1
+    score += abs(FG_mean - 2.5) * 2  # F,G should be around rank 2-3
+    score += abs(E - 4) * 2  # E around rank 4
+    score += abs(D - 5) * 2  # D around rank 5
+    score += abs(BC_mean - 6.5) * 2  # B,C around rank 6-7
+    score += max(0, 8 - H) * 3  # H should be rank 8 or worse
+    
+    return score
+
+# Apply scoring
+df['pattern_score'] = df.apply(score_pattern_match, axis=1)
+
+# Sort by score (lower = better)
+df_sorted = df.sort_values('pattern_score')
+
+# Display results
+print("="*100)
+print("LOGS RANKED BY PATTERN MATCH: A > F,G > E > D > B,C > H/J/K/L")
+print("="*100)
+print(f"\n{'Log File':<20} {'Score':<10} {'A':<5} {'F':<5} {'G':<5} {'E':<5} {'D':<5} {'B':<5} {'C':<5} {'H':<5}")
+print("-"*100)
+
+for idx in df_sorted.index:
+    row = df_sorted.loc[idx]
+    score = row['pattern_score']
+    if score != np.inf:
+        print(f"{idx:<20} {score:<10.1f} {row['AG-A']:<5.0f} {row['AG-F']:<5.0f} {row['AG-G']:<5.0f} "
+              f"{row['AG-E']:<5.0f} {row['AG-D']:<5.0f} {row['AG-B']:<5.0f} {row['AG-C']:<5.0f} {row['AG-H']:<5.0f}")
+
+print("\n" + "="*100)
+print("TOP 5 BEST MATCHES:")
+print("="*100)
+
+for i, idx in enumerate(df_sorted.head(5).index, 1):
+    row = df_sorted.loc[idx]
+    print(f"\n#{i}: {idx}")
+    print(f"    Score: {row['pattern_score']:.1f}")
+    print(f"    Pattern: A({row['AG-A']:.0f}) > F({row['AG-F']:.0f}),G({row['AG-G']:.0f}) > E({row['AG-E']:.0f}) > D({row['AG-D']:.0f}) > B({row['AG-B']:.0f}),C({row['AG-C']:.0f}) > H({row['AG-H']:.0f})")
+
+
+df.sort_values('pattern_score')
 # %%
 for f in os.listdir('logs'):
     if 'ablation' in f:
@@ -229,7 +362,7 @@ def analyze_ablation_study(configs, performance_data, ability_names=['M', 'C', '
     #         contributions[ability] = contribution / full_performance * 100  # As percentage
     #         print(f"{ability} solo contribution: {contribution:.3f} ({contributions[ability]:.1f}% of full)")
     
-    return df, main_effects, interactions, model, contributions
+    return df, main_effects, interactions, None, None# contributions
 
 def add_sig_bracket(ax, x1, x2, y, h, text, color='k', linewidth=1.5, fontsize=10):
     # Draw a square-bracket-like connector
@@ -246,17 +379,18 @@ def plot_ablation_results(configs, performance_data, ability_names=['M', 'C', 'P
     # Plot 1: Performance by configuration
     means = [performance_data[i].mean() for i in range(len(configs))]
     stds = [pd.Series(performance_data[i]).sem() for i in range(len(configs))]
-    config_labels = [f"{'+'.join([ability_names[j] for j, x in enumerate(config) if x]) or 'Baseline'}" 
+    config_labels = [f"{'+'.join([ability_names[j] for j, x in enumerate(config) if x]) or 'ReAct'}" 
                     for config in configs]
     
     ax = axes[0]
     ax.bar(range(len(configs)), means, yerr=stds, capsize=5)
-    ax.set_xlabel('Configuration')
-    ax.set_ylabel('Performance')
-    ax.set_title('Performance by Ablation Configuration', fontsize=20)
+    # ax.set_xlabel('Configuration', fontsize=20)
+    ax.set_ylabel('Performance', fontsize=20)
+    ax.set_title('Performance by SSA Configuration', fontsize=20)
     ax.set_xticks(range(len(configs)))
     ax.set_xticklabels(config_labels, rotation=45)
-    ax.set_ylim(0, 0.2)
+    ax.tick_params(labelsize=15)
+    # ax.set_ylim(0, 0.2)
     
     # # Plot 2: Main effects
     df_analysis, main_effects, _, _, _ = analyze_ablation_study(configs, performance_data, ability_names)
@@ -284,14 +418,16 @@ def plot_ablation_results(configs, performance_data, ability_names=['M', 'C', 'P
         ax.boxplot([absent, present], positions=[i*3, i*3+1], widths=0.6)
         # axes[1,0].text(i*3+0.5, max(present.max(), absent.max()) + 1, ability, ha='center')
 
-    ax.set_ylabel('Performance')
-    ax.set_title('Performance Distribution: Absent vs Present', fontsize=20)
+    ax.set_ylabel('Performance', fontsize=20)
+    ax.set_title('Capability Contribution: Absent (Left) vs Present (Right)', fontsize=20)
     ax.set_xticks([0.5, 3.5, 6.5])
+    ax.tick_params(labelsize=15)
 
-    y = 0.4
-    h = 0.01  # bracket bottom
-    add_sig_bracket(ax, 0, 1, y=y, h=h, text="***")
-    add_sig_bracket(ax, 3, 4, y=y, h=h, text="*")
+
+    # y = 0.4
+    # h = 0.01  # bracket bottom
+    # add_sig_bracket(ax, 0, 1, y=y, h=h, text="***")
+    # add_sig_bracket(ax, 3, 4, y=y, h=h, text="*")
 
     
     ax.set_xticklabels(['Metacognition', 'Competitive Awareness', 'Planning'])
@@ -345,34 +481,52 @@ statistical_significance_test(agent_configs, performance_data)
 # %%
 performance_data.shape
 # %%
-partial = ExperimentLog.load('logs/moral/partial.log')
-full = ExperimentLog.load('logs/moral/full.log')
+partial = [ExperimentLog.load(f'logs/moral/partial_{i}.log') for i in range(4)]
+full = [ExperimentLog.load(f'logs/moral/full_{i}.log') for i in range(4)]
 # %%
-price_skill = []
-for experiment in [partial]:
-    price_skill.append(np.array([np.sum([a.action == 'train' for a in hx.agent_actions[:-2]]) for hx in experiment.history]))
-period = 10
-n_agents = 4
+partial_trains = []
+for experiment in partial:
+    print(sum(np.array([np.sum([a.action == 'train' for a in hx.agent_actions]) for hx in experiment.history])))
 
-non_price_skill = []
-for experiment in [full]:
-    non_price_skill.append(np.array([np.sum([a.action == 'train' for a in hx.agent_actions[:-2]]) for hx in experiment.history]))
+print('full')
+full_trains = []
+for experiment in full:
+    print(sum(np.array([np.sum([a.action == 'train' for a in hx.agent_actions]) for hx in experiment.history])))
 
-prc = pd.Series(np.mean(price_skill, axis=0)/n_agents*100).ewm(span=period).mean().to_numpy()
-noprc =  pd.Series(np.mean(non_price_skill, axis=0)/n_agents*100).ewm(span=period).mean().to_numpy()
+# %%
+experiment
+# %%
+partial_skill = []
+for experiment in partial:
+    partial_skill.append(np.array([np.sum([a.action == 'train' for a in hx.agent_actions]) / len(experiment.agents) for hx in experiment.history]))
+period = 1
+n_agents = 1
 
-plt.plot(prc, label='open')
-plt.plot(noprc, label='sealed')
+full_skill = []
+for experiment in full:
+    full_skill.append(np.array([np.sum([a.action == 'train' for a in hx.agent_actions]) / len(experiment.agents)  for hx in experiment.history]))
 
-plt.fill_between(
-    np.arange(100),prc, noprc, where=(prc > noprc), 
-    interpolate=True, color="tab:blue", alpha=0.25, 
-)
+_p = 2
+partial_skill = np.array(partial_skill).reshape((4, _p, -1)).mean(axis=1)
+full_skill = np.array(full_skill).reshape((4, _p, -1)).mean(axis=1)
 
-plt.fill_between(
-    np.arange(100),prc, noprc, where=(noprc > prc), 
-    interpolate=True, color="tab:orange", alpha=0.25,
-)
+# %%
+period = 5
+prc = pd.Series(np.mean(partial_skill, axis=0)/n_agents*100).ewm(span=period).mean().to_numpy()
+noprc =  pd.Series(np.mean(full_skill, axis=0)/n_agents*100).ewm(span=period).mean().to_numpy()
+
+plt.plot(np.arange(0, 100, 2), prc, label='partial')
+plt.plot(np.arange(0, 100, 2), noprc, label='full')
+
+# plt.fill_between(
+#     np.arange(100),prc, noprc, where=(prc > noprc), 
+#     interpolate=True, color="tab:blue", alpha=0.25, 
+# )
+
+# plt.fill_between(
+#     np.arange(100),prc, noprc, where=(noprc > prc), 
+#     interpolate=True, color="tab:orange", alpha=0.25,
+# )
 plt.xticks(fontsize=15)
 plt.yticks(fontsize=15)
 plt.ylabel("Agents Training (%)", fontsize=20)
@@ -380,5 +534,56 @@ plt.xlabel("Timestep", fontsize=20)
 plt.legend(fontsize=20)
 plt.tight_layout()
 # %%
-plt.plot(np.array(full['SK-D']).T)
+hx = partial[0].history[0]
+hx.job_performance
+
+def get_utility(hx): 
+    # return np.sum([t / hx.base_prices[i] for i, t in hx.winning_prices.items()]) / len(hx.base_prices)
+    # return np.sum([t[1] for t in hx.job_performance.values()]) / len(hx.winning_prices)
+
+    utility = []
+    for idx, price in hx.winning_prices.items():
+        
+        produced_value = hx.job_performance[idx][1]
+
+        cost = price / hx.base_prices[idx]
+
+        utility.append(produced_value + 0.5 - cost)
+    return np.sum(utility) / len(hx.winning_prices)
+
+# %%
+partial_u = [np.array([get_utility(hx, performance=True) for hx in experiment.history]) for experiment in partial]
+full_u = [np.array([get_utility(hx) for hx in experiment.history]) for experiment in [full[0], full[3]]]
+
+plt.plot(np.mean(partial_u, axis=0), label='partial')
+plt.plot(np.mean(full_u, axis=0), label='full')
+plt.title('Utility', fontsize=20)
+plt.legend(fontsize=20)
+
+    
+# %%
+# %%
+partial[0].agents[0].trace
+# %%
+plt.plot(np.array(partial_u).T)
+# %%
+np.mean(full_u, axis=0)
+# %%
+# %%
+for experiment in partial:
+    print(len(experiment.agent_ids))
+# %%
+hx.winning_prices
+# %%
+hx.base_prices
+# %%
+hx.job_performance
+# %%
+# %%
+
+# we assume a margin of 200%. namely, the value of output produced from the agent is 2x what the client's budget is.
+# if agent pays more 
+# %%
+# %%
+experiment.agents[0].skill_history
 # %%

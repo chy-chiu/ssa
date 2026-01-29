@@ -109,3 +109,5 @@ for j in range(20):
         logger.info(market.simulate_timestep())
 
     exp_log = market.export(f"logs/ablation_{j}.log")
+
+# %%

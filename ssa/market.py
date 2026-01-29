@@ -728,7 +728,7 @@ class LabourMarket:
             bid_price = agent_bidding_data["pricing"][agent_idx][job_id]
 
             ### TO ADD AGAIN AFTER MORAL HAZARD EXPERIMENT
-            adjusted_reward = bid_price * performance
+            adjusted_reward = bid_price # * performance
             
             agent_allocations[agent_idx].append(JobHistory(
                 job_id=job_id, task_id=task_id, base_price=base_price, bid_price=bid_price,
