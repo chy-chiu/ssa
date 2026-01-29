@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 from loguru import logger
 from ssa.tasks.task import TaskBase, ProxyTask
 from ssa.agents.agent import AgentBase, AgentActionResponse, MarketInfo
-from ssa.agents.llm import LLMAgent
+from ssa.agents.cot_agent import CoTAgent
 
 ORACLE_BASE = """You are {agent_id}, a strategic agent competing in an AI labor market simulation over 100 rounds to maximize total reward.
 
@@ -83,7 +83,7 @@ THIS ROUND'S LISTINGS (task@client_budget):
 """
 
 
-class OracleAgent(LLMAgent):
+class OracleAgent(CoTAgent):
 
     def __init__(self, agent_id: int, tasks: List[TaskBase], model: ChatOpenAI = None, subagent_model = None, verbose=True):
         super().__init__(agent_id, tasks, model, subagent_model, verbose)
@@ -150,4 +150,3 @@ class OracleAgent(LLMAgent):
             all_agent_bids=all_agent_bids,
             listings=listings,
         )  # + INSTRUCTION
-

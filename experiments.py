@@ -1,7 +1,7 @@
 # %%
 
 from ssa.market import LabourMarket, ExperimentLog
-from ssa.agents import StaticAgent, LLMAgent, OracleAgent
+from ssa.agents import StaticAgent, CoTAgent, OracleAgent
 from ssa.tasks.cipher import CipherAgent, CipherTask
 from ssa.tasks import ProxyAgent, ProxyTask
 from ssa.utils import init_azure_model
@@ -17,7 +17,7 @@ for seed, task in enumerate(tasks):
 model = init_azure_model()
 
 agents = []
-agents.extend([LLMAgent(agent_id=f"llm_{i}", tasks=tasks, model=model, verbose=False) for i in range(2)])
+agents.extend([CoTAgent(agent_id=f"llm_{i}", tasks=tasks, model=model, verbose=False) for i in range(2)])
 agents.extend([OracleAgent(agent_id=f"orc_{i}", tasks=tasks, model=model, verbose=True) for i in range(1)])
 
 market = LabourMarket(tasks, agents, skill_phi=0.1, gumbel_t=0.001, rep_sensitivity=1)

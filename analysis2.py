@@ -11,7 +11,7 @@ from ssa.agents import (
     AgentBase,
     MarketInfo,
     StaticAgent,
-    LLMAgent,
+    CoTAgent,
     OracleAgent,
     AgentLog,
 )

@@ -129,6 +129,7 @@ python-dateutil==2.9.0.post0
 python-dotenv==1.1.0
 python-rapidjson==1.20
 pytz==2025.2
+pytest==8.3.4
 pyyaml==6.0.2
 pyzmq==26.4.0
 regex==2025.7.34
@@ -151,7 +152,7 @@ spacy-legacy==3.0.12
 spacy-loggers==1.0.5
 sqlalchemy==2.0.43
 srsly==2.5.1
--e file:///home/chris/sss
+-e .
 stable-baselines3==2.7.0
 stack-data==0.6.3
 sympy==1.14.0

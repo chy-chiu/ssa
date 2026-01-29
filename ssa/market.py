@@ -7,7 +7,7 @@ from copy import deepcopy
 from ssa.agents import (
     AgentBase,
     StaticAgent,
-    LLMAgent,
+    CoTAgent,
     OracleAgent,
     AgentLog,
 )
@@ -48,6 +48,10 @@ MARKET_PREF_LIMIT = 10
 AGENT_PREF_LIMIT = 5
 
 
+def _adjusted_reward(*, bid_price: float, performance: float, performance_pay: bool) -> float:
+    return float(bid_price * performance) if performance_pay else float(bid_price)
+
+
 class LabourMarket:
     def __init__(
         self,
@@ -64,6 +68,8 @@ class LabourMarket:
         rep_sensitivity=REPUTATION_PRIOR_STRENGTH,
         rep_lambda=LAMBDA,
         gumbel_t=GUMBEL_NOISE,
+        performance_pay: bool = True,
+        open_bidding: bool = False,
     ):
 
         # Initialize tasks
@@ -96,6 +102,8 @@ class LabourMarket:
 
         self.gumbel_t = gumbel_t
         self.skill_phi = skill_phi
+        self.performance_pay = bool(performance_pay)
+        self.open_bidding = bool(open_bidding)
 
         # Initialize data tracking
         self.history: List[RoundData] = []
@@ -727,8 +735,11 @@ class LabourMarket:
             base_price = listings_by_job[job_id]
             bid_price = agent_bidding_data["pricing"][agent_idx][job_id]
 
-            ### TO ADD AGAIN AFTER MORAL HAZARD EXPERIMENT
-            adjusted_reward = bid_price # * performance
+            adjusted_reward = _adjusted_reward(
+                bid_price=float(bid_price),
+                performance=float(performance),
+                performance_pay=self.performance_pay,
+            )
             
             agent_allocations[agent_idx].append(JobHistory(
                 job_id=job_id, task_id=task_id, base_price=base_price, bid_price=bid_price,
@@ -806,6 +817,7 @@ class LabourMarket:
             listings=listings_by_task,
             info={
                 "agent_skills": {agent.id: agent.skill_level_by_task for agent in self.agents},
+                "open_bidding": self.open_bidding,
             },
         )
 
@@ -916,9 +928,9 @@ class LabourMarket:
             agent_token_usage=agent_token_usage,
         )
 
-    def export(self, filepath=None) -> ExperimentLog:
+    def export(self, filepath=None, config_extra: Optional[Dict[str, Any]] = None) -> ExperimentLog:
 
-        config = dict(
+        config: Dict[str, Any] = dict(
             market_limit=self.market_limit,
             market_pref_limit=self.market_pref_limit,
             agent_pref_limit=self.agent_pref_limit,
@@ -930,6 +942,8 @@ class LabourMarket:
             rep_lambda=self.rep_lambda,
             gumbel_t=self.gumbel_t,
         )
+        if config_extra:
+            config.update(config_extra)
 
         jobs = [j.model_dump() for j in self.jobs.values()]
 

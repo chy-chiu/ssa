@@ -16,7 +16,6 @@ import matplotlib.pyplot as plt
 from loguru import logger
 from ssa.tasks.task import TaskBase, ProxyTask
 from ssa.agents.agent import AgentBase, AgentActionResponse, MarketInfo
-from ssa.agents.llm import LLMAgent
 from ssa.agents.oracle import OracleAgent
 from ssa.market import RoundData
 
@@ -107,5 +106,4 @@ R2: task_a@test_agent(0.5) | task_b@10.0→10.0→llm_6(0.5)"""
     
 if __name__ == "__main__":
     test_oracle_agent()
-
 

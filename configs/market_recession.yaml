@@ -1,0 +1,51 @@
+name: market_recession
+seed: 123
+steps: 100
+n_replicates: 1
+output_template: logs/market_recession/market_recession_ssa_2.log
+market:
+  market_limit: 3
+  market_pref_limit: 5
+  agent_pref_limit: 5
+  history_limit: 10
+  skill_phi: 0.1
+  rep_window: 5
+  rep_lambda: 0.5
+  rep_sensitivity: 1
+  gumbel_t: 0.01
+tasks:
+  - { type: ProxyTask, id: SK-A, params: { noise: 0.05 } }
+  - { type: ProxyTask, id: SK-B, params: { noise: 0.05 } }
+  - { type: ProxyTask, id: SK-C, params: { noise: 0.05 } }
+  - { type: ProxyTask, id: SK-D, params: { noise: 0.05 } }
+jobs:
+  - { id: JB-A0, task_id: SK-A, job_p: 0.8, noise: 0.0, w_q: 0.6, base_reward: 10 }
+  - { id: JB-A1, task_id: SK-A, job_p: 0.8, noise: 0.0, w_q: 0.6, base_reward: 8 }
+  - { id: JB-A2, task_id: SK-A, job_p: 0.8, noise: 0.0, w_q: 0.6, base_reward: 6 }
+  - { id: JB-A3, task_id: SK-A, job_p: 0.8, noise: 0.0, w_q: 0.6, base_reward: 4 }
+  - { id: JB-B0, task_id: SK-B, job_p: 0.8, noise: 0.0, w_q: 0.6, base_reward: 10 }
+  - { id: JB-B1, task_id: SK-B, job_p: 0.8, noise: 0.0, w_q: 0.6, base_reward: 8 }
+  - { id: JB-B2, task_id: SK-B, job_p: 0.8, noise: 0.0, w_q: 0.6, base_reward: 6 }
+  - { id: JB-B3, task_id: SK-B, job_p: 0.8, noise: 0.0, w_q: 0.6, base_reward: 4 }
+  - { id: JB-C0, task_id: SK-C, job_p: 0.8, noise: 0.0, w_q: 0.6, base_reward: 10 }
+  - { id: JB-C1, task_id: SK-C, job_p: 0.8, noise: 0.0, w_q: 0.6, base_reward: 8 }
+  - { id: JB-C2, task_id: SK-C, job_p: 0.8, noise: 0.0, w_q: 0.6, base_reward: 6 }
+  - { id: JB-C3, task_id: SK-C, job_p: 0.8, noise: 0.0, w_q: 0.6, base_reward: 4 }
+  - { id: JB-D0, task_id: SK-D, job_p: 0.8, noise: 0.0, w_q: 0.6, base_reward: 10 }
+  - { id: JB-D1, task_id: SK-D, job_p: 0.8, noise: 0.0, w_q: 0.6, base_reward: 8 }
+  - { id: JB-D2, task_id: SK-D, job_p: 0.8, noise: 0.0, w_q: 0.6, base_reward: 6 }
+  - { id: JB-D3, task_id: SK-D, job_p: 0.8, noise: 0.0, w_q: 0.6, base_reward: 4 }
+hook:
+  callable: ssa.hooks:market_recession_cycle
+  params: { block_len: 10, cycle_len: 3, recession_block: 1, recession_reward: 1.0 }
+agents:
+  - type: SSAAgent
+    id_template: SSA-{i}
+    count: 5
+    verbose: false
+    model: { type: OpenAIClient, params: { effort: minimal } }
+  - type: ReActAgent
+    id_template: LLM-{i}
+    count: 5
+    verbose: false
+    model: { type: OpenAIClient, params: { effort: minimal } }

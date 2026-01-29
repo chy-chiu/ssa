@@ -3,9 +3,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import trange
 
-from ssa.agents import ImproveAgent, LLMAgent, OracleAgent, StaticAgent
+from ssa.agents import ImproveAgent, CoTAgent, OracleAgent, StaticAgent
 from ssa.agents.policy import PolicyAgent
-from ssa.agents._ssa import LLMSSA
+from ssa.agents.ssa_agent import SSAAgent
 from ssa.galeshapley import multi_galeshapley
 from ssa.market import ExperimentLog, Job, LabourMarket
 from ssa.tasks import ProxyAgent, ProxyTask

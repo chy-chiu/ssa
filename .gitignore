@@ -2,6 +2,7 @@ secrets.yaml
 __pycache__/
 .venv
 *.zip
+paper/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

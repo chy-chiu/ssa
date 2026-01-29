@@ -108,7 +108,7 @@ class AgentBase(ABC):
         return ""
         
     
-    def get_market_history_str(self, history: List[RoundData]) -> str:
+    def get_market_history_str(self, history: List[RoundData], *, open_bidding: bool = False) -> str:
         """Generate formatted history string matching your example format"""
 
         if not history:
@@ -126,13 +126,35 @@ class AgentBase(ABC):
                 price = round_data.base_prices[job_id]
                 winning_price = round_data.winning_prices[job_id]
 
-                # price shown
-                # allocations.append(f"{job_id}(${price})→{agent_name}({rep}*)@${winning_price}")
-                
-                # no price shown
-                allocations.append(f"{job_id}(${price:.1f})→{agent_name}({rep}*)")
+                if open_bidding:
+                    allocations.append(f"{job_id}(${price:.1f})→{agent_name}({rep}*)@${winning_price:.1f}")
+                else:
+                    allocations.append(f"{job_id}(${price:.1f})→{agent_name}({rep}*)")
 
             lines.append(f"R{round_data.round}: {', '.join(allocations)}")
+            if open_bidding:
+                bid_lines = []
+                for job_id in sorted(round_data.base_prices.keys()):
+                    bids = round_data.agent_bids.get(job_id) or {}
+                    if not bids:
+                        continue
+
+                    bid_items = sorted(
+                        [(self.agent_ids[int(a_idx)], float(price)) for a_idx, price in bids.items()],
+                        key=lambda x: x[1],
+                    )
+                    if len(bid_items) <= 5:
+                        bids_str = ", ".join(f"{agent_name}=${price:.1f}" for agent_name, price in bid_items)
+                        bid_lines.append(f"{job_id}: {bids_str}")
+                    else:
+                        prices = np.array([p for _, p in bid_items], dtype=float)
+                        bid_lines.append(
+                            f"{job_id}: min=${float(prices.min()):.1f}, med=${float(np.median(prices)):.1f}, "
+                            f"max=${float(prices.max()):.1f} (n={len(bid_items)})"
+                        )
+
+                if bid_lines:
+                    lines.append("BIDS: " + " | ".join(bid_lines))
 
         agent_rewards = history[-1].agent_total_rewards
         reward_sorted = " ".join(
