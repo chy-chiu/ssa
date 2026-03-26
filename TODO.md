@@ -1,89 +1,134 @@
-## Working Agreement (to avoid context rot)
+# ICML 2026 Rebuttal Engineering TODO (Code + Experiments)
 
-- We do **one task at a time**.
-- Exactly **one** checkbox item may be marked **(in progress)** at any time.
-- When a task is finished, mark it `- [x]` and add a 1–3 line “Result / How to verify” note under **Done Log**.
+We are not cooked; tight engineering, clean analysis, and disciplined evidence can still move this.
 
-## Context notes (from user)
-- `paper/` is reference-only; moved under `.archive/paper/` to keep it out of submission zips.
-- Any `vivabench` references are copy/paste artifacts; safe to remove.
+Scope: this TODO is execution-focused (code + runs + analysis artifacts). Paper-writing text lives elsewhere.
 
-## Priorities
-- P0 = required for “submission-ready” (reproducible + claims match code).
-- P1 = important for reviewer confidence / polish.
-- P2 = nice-to-have cleanup.
+## Working Agreement
 
-## Current Task (do this now)
+- We do one execution task at a time.
+- Exactly one checkbox can be marked `(in progress)`.
+- Experiments must write under `logs/` (no ad-hoc output dirs for final artifacts).
+- Every completed task gets a 1-3 line entry in **Done Log** with exact verify command.
 
-- [x] **[P1] Rename baseline agents for clarity**: rename `ssa/agents/llm.py`→`ssa/agents/cot_agent.py` and `ssa/agents/llm2.py`→`ssa/agents/react_agent.py`; rename SSA agent modules similarly (`_ssa*.py`→`ssa_agent*.py`); update class names (`LLMAgent`/`LLM2Agent`/`LLMSSA`) to match; keep backwards-compatible aliases if easy.
+## Current Task
 
-## Backlog
+- [ ] **[P0] Stand up rebuttal-grade experiment logging + analysis pipeline** *(in progress)*.
 
-### P0 (submission-blocking)
-- [x] [P0] Write documentation including entry point / demo (single canonical “how to run”).
-- [x] [P0] Include seeding: pin RNG seeds and document seeding protocol (what is seeded + where).
-- [x] [P0] Ensure performance-based pay is enabled in code and documented (paper references this variant).
-- [x] [P0] Implement open-bid variant as a toggle-able feature flag when initializing market (paper references this variant).
-- [x] [P0] Open-bid variant described but not cleanly implemented; re-implement by modifying / injecting it in the market history.
-- [x] [P0] Remove any identifying information (authors/emails/paths/model endpoints/etc.).
+## Archive Reuse Inventory (already reviewed)
 
-### P1 (core completeness / correctness)
-- [x] [P1] Using `CipherTask` as reference, finish the `OrderTask` and `Diagnosis` tasks.
-- [x] [P1] Enforce / document constraint $p_{i,J,t}>0$ to avoid degenerate utilities at $p=0$ (throw error if violated).
-- [x] [P1] (Optional) Align baseline prompts with current payment mechanics and document what “CoT” vs “ReAct” means here.
+Primary reusable sources:
+- `.archive/scripts/analysis.py`
+- `.archive/scripts/analysis2.py`
+- `.archive/scripts/trace_analysis.py`
+- `.archive/scripts/action_analysis.py`
+- `.archive/notebooks/analysis.ipynb`
+- Current `ssa/analysis.py`
 
-### P2 (maintenance)
-- [x] [P2] Clean up any unused / exploratory code (after P0/P1 so we don’t delete needed parts), tidy up other messy stuff under `./scripts/`.
+Reusable functions/ideas to adopt (and clean up):
+- `get_summary_df` (agent-level summary table)
+- `compute_trace_means`, `interp_trace` (trace normalization)
+- `recovery_score` (rank mobility)
+- `gini` (inequality / concentration)
+- trace utilities: `format_trace`, `format_trace_history`
+- trace scoring scaffold + batch async pattern from `trace_analysis.py`
+- ablation main/interaction effect analysis pattern from `analysis2.py`
 
-## Notes for agent
-- Goal: make repo runnable end-to-end from a clean environment with 1–2 commands; “paper claims” should be traceable to a script/config in-repo.
-- When in doubt: prefer a minimal, deterministic “baseline” run that produces a small artifact in `logs/` and can be cited in docs.
+## P0 — Logging + Analysis First (blocker for all rebuttal experiments)
 
-## Notes / answers from user
-- Which single command should be the “golden path” for reviewers? Example: `python -m ssa.run_experiment --config configs/baseline.yaml`
-- ANSWER: That path looks fine and good
-- Do you want the repo to be installable via `pip install -e .` (preferred) or runnable without install?
-- ANSWER: Yes pip install -e .
-- Which experiments/figures are must-reproduce for submission readiness (top 2–3)?
-- ANSWER: All the experiments included in exp_... .py (except for baseline / ablation - we use baseline2, ablation2 instead. however keep baseline / ablation with suffix "_old" as configs)
-- Should we remove `paper/` from git entirely, or keep it but clearly exclude it from packaging/docs?
-- ANSWER: just exclude is fine, in case you need to reference it again
+### P0.1 Logging contract and run layout
+
+- [ ] **[P0][Code] Define a strict run layout under `logs/`**:
+  - `logs/<study>/<variant>/<run_name>_<replicate_id>.log`
+  - `logs/<study>/<variant>/analysis/*.csv|*.md|*.png`
+- [ ] **[P0][Code] Add run metadata fields** into exported config/log:
+  - `study`, `variant`, `reviewer_target`, `hypothesis_id`, `git_commit` (if available), `effective_seed`, `scoring_mode`, `rep_update_mode`, `agent_mix`.
+- [ ] **[P0][Code] Add one `run_index.csv` builder** that scans `logs/**` and registers all runs + metadata.
+- [ ] **[P0][Test] Add a logging schema smoke test** validating required metadata keys exist in exported logs.
+
+### P0.2 Analysis module split (adopt + clean existing functions)
+
+- [ ] **[P0][Code] Create `ssa/analysis/io.py`**
+  - `discover_logs()`, `load_experiment_logs()`, `build_run_index()`.
+- [ ] **[P0][Code] Create `ssa/analysis/metrics.py`**
+  - Move/refactor: `get_summary_df`, `recovery_score`, `compute_trace_means`, `interp_trace`, `gini`.
+  - Add robust handling for missing/partial traces and zero-denominator cases.
+- [ ] **[P0][Code] Create `ssa/analysis/traces.py`**
+  - Move/refactor: `format_trace`, `format_trace_history`, batch trace extraction.
+  - Add trace-to-dataframe converter: one row per `(run, agent, round)`.
+- [ ] **[P0][Code] Create `ssa/analysis/rebuttal.py`**
+  - Directional checks for rebuttal claims (pass/fail + effect size):
+    - open bidding lowers prices,
+    - performance pay increases training,
+    - SSA > controls,
+    - trends persist under scale/robustness variants.
+- [ ] **[P0][Test] Add unit tests for `metrics.py` and `io.py`** with tiny synthetic logs.
+
+### P0.3 CLI scripts (so analysis is one-command reproducible)
+
+- [ ] **[P0][Code] Add `scripts/analysis/build_run_index.py`**
+  - Input: `--root logs`
+  - Output: `logs/run_index.csv`
+- [ ] **[P0][Code] Add `scripts/analysis/summarize_runs.py`**
+  - Input: run selector (glob/tag/study)
+  - Output: agent-level + variant-level summary CSV/MD tables.
+- [ ] **[P0][Code] Add `scripts/analysis/plot_traces.py`**
+  - Output standardized trace plots for bids, training rate, reward trajectories.
+- [ ] **[P0][Code] Add `scripts/analysis/rebuttal_bundle.py`**
+  - Produces reviewer-ready compact tables in `logs/rebuttal_bundle/`.
+- [ ] **[P0][Code] Add `scripts/analysis/trace_score.py`**
+  - Wrapper around trace scoring prompt scaffold; writes per-trace scores to CSV.
+
+### P0.4 Small integration smoke script (requested)
+
+- [ ] **[P0][Code] Add `scripts/smoke/smoke_words_task.py`** with:
+  - 2 agents,
+  - 5 rounds,
+  - 2 tasks total,
+  - includes a real words-based task (`CipherTask`) plus one lightweight second task,
+  - writes to `logs/smoke_words/smoke_words_0.log`.
+- [ ] **[P0][Code] Add `scripts/smoke/run_smoke.sh`** for one-command local sanity run.
+- [ ] **[P0][Test] Add `tests/test_smoke_words_task.py`** to verify log file shape/keys (short mode, no long run).
+
+## P1 — Rebuttal Experiment Surface (after P0 is stable)
+
+- [ ] **[P1][Code] Configurable client scoring mode** (`cobb_douglas`, `linear`, optional CES rho).
+- [ ] **[P1][Code] Reputation update mode for unmatched agents** (`full_benchmark`, `reduced_benchmark`, `none`).
+- [ ] **[P1][Code] SSA length/info-matched control agent prompt** (no explicit M/C/P scaffold).
+- [ ] **[P1][Code] Scale-ready config generation** for N sweeps (N=32, N=64).
+- [ ] **[P1][Code] Stochastic upskilling option** (probabilistic training success).
+
+## P1 — Tier-A Runs (highest ROI for score movement)
+
+- [ ] **[P1][Run] Alternative scoring robustness** (`cobb_douglas` vs `linear`, CES if cheap).
+- [ ] **[P1][Run] Reduced/no benchmark recalibration robustness**.
+- [ ] **[P1][Run] SSA prompt control run** (same backbone).
+- [ ] **[P1][Run] Scale N=32**.
+- [ ] **[P1][Artifact] One compact rebuttal table** with effect sizes + directional pass/fail.
+
+## P2 — If compute/time allows
+
+- [ ] **[P2][Run] Scale N=64**.
+- [ ] **[P2][Run] Reputation forgetting/window sweep**.
+- [ ] **[P2][Run] Client-side sensitivity sweep (`w_q`/scoring params)**.
+- [ ] **[P2][Run] LLM-as-judge bias stress check** (order/anonymization).
+
+## Reviewer Mapping (evidence bundles)
+
+- [ ] **GrSA**: scoring robustness + rep-update robustness + SSA control + N=32.
+- [ ] **5M91**: at least one robustness result + stochastic upskilling if done.
+- [ ] **TW1h**: stochastic upskilling + trace-scoring limitation honesty (+ bias check if done).
+- [ ] **t6s6**: concise shared robustness summary.
+
+## Run Order (strict)
+
+- [ ] 1. Logging/analysis infra and smoke scripts.
+- [ ] 2. Smoke all new modes/scripts.
+- [ ] 3. Tier-A full runs.
+- [ ] 4. Rebuttal bundle generation.
+- [ ] 5. Tier-B/Tier-C only if Tier-A complete.
 
 ## Done Log
 
-- **[2026-01-29] Maintenance cleanup**
-  - Result: Removed an unused credentialed script (`iclr_scrape.py`) and `.DS_Store`; no `./scripts/` directory exists in this repo to tidy further.
-  - How to verify: `find . -maxdepth 3 -type d -name scripts -print` (should print nothing).
-- **[2026-01-29] Align baseline prompts**
-  - Result: Updated `CoTAgent`/`ReActAgent` system prompts to reflect performance-adjusted payment; documented what “CoT” vs “ReAct” means in `README.md`.
-  - How to verify: open `ssa/agents/cot_agent.py` and `ssa/agents/react_agent.py` and confirm the payment line matches the market’s `adjusted_reward = bid_price * performance`.
-- **[2026-01-29] Enforce positive bid prices**
-  - Result: Added validation in `ssa/common.py` to require bid prices `> 0` (raises on `<= 0`), plus a unit test.
-  - How to verify: `pytest -q` (includes `tests/test_price_constraint.py`).
-- **[2026-01-29] Finish OrderingTask and DiagnosisTask**
-  - Result: Reworked `ssa/tasks/ordering.py` and `ssa/tasks/diagnosis.py` to implement the `TaskRunner` interface (benchmarkable `generate_question`, compatible `score_response`/`extract_feedback_info` signatures, and `TaskSubAgent`-based LLM wrappers); added unit tests.
-  - How to verify: `pytest -q` (should include `tests/test_ordering_task.py` and `tests/test_diagnosis_task.py`).
-- **[2026-01-29] Remove identifying information**
-  - Result: Removed personal metadata and credentials (scrubbed `ssa/assets/secrets.yaml` and `assets/secrets.yaml`, removed `iclr_scrape.py`, removed `vivabench` packaging references, and deleted `.DS_Store`).
-  - How to verify: `rg -n "chy\\.chiu@gmail\\.com|API_KEY:|password=" -S .` (should return no hits for real secrets).
-- **[2026-01-29] Config-driven runner**
-  - Result: Added `ssa/run_experiment.py` + YAML configs in `configs/` for all `exp_*.py` experiments (canonical `baseline.yaml`/`ablation.yaml`, plus `_old` variants); updated each `exp_*.py` to be a thin wrapper around the config runner.
-  - How to verify (smoke, no LLM calls): `.venv/bin/python -m ssa.run_experiment --config configs/market_change.yaml --no-model --quiet --steps 2 --replicates 1` (should write `logs/market_change/market_change.log`).
-- **[2026-01-29] Rename baseline agent modules/classes**
-  - Result: Introduced canonical `CoTAgent` (`ssa/agents/cot_agent.py`), `ReActAgent` (`ssa/agents/react_agent.py`), and `SSAAgent` (`ssa/agents/ssa_agent.py`) / `SSAAgentAblation` (`ssa/agents/ssa_agent_ablation.py`); updated runner registry and `configs/*.yaml` to use canonical names; kept backwards-compatible aliases (`LLMAgent`, `LLM2Agent`, `LLMSSA`).
-  - How to verify: `.venv/bin/python -c "import ssa.agents as a; print(a.CoTAgent, a.ReActAgent, a.SSAAgent); print(a.LLMAgent, a.LLM2Agent, a.LLMSSA)"` and `.venv/bin/python -m ssa.run_experiment --config configs/market_change.yaml --no-model --quiet --steps 2 --replicates 1`.
-- **[2026-01-29] Canonical README / how-to-run**
-  - Result: Expanded `README.md` with a single canonical entrypoint (`python -m ssa.run_experiment --config ...`), a no-model smoke test, and a pointer to `demo.ipynb`; fixed an invalid local path in `requirements.txt` and added a minimal `setup.py` to support `pip install -e .` in older tooling.
-  - How to verify: create a fresh venv, run `pip install -r requirements.txt`, then run the “Quickstart” command in `README.md` (should write an output under `logs/`).
-- **[2026-01-29] Seeding protocol**
-  - Result: Documented seeding protocol in `README.md` and ensured `ssa/run_experiment.py` seeds Python `random`, NumPy, and (if available) `torch` per replicate.
-  - How to verify: `pip install -r requirements.txt && pytest -q` (includes `tests/test_seeding.py`), and confirm exported logs include `config_extra.effective_seed`.
-- **[2026-01-29] Performance-based pay**
-  - Result: Added `market.performance_pay` (default on) and compute `adjusted_reward = bid_price * performance` in `ssa/market.py`; documented the default in `README.md`.
-  - How to verify: `pip install -r requirements.txt && pytest -q` (includes `tests/test_payments.py`), and run a short `--no-model` experiment to observe `agent_round_rewards` drop below raw bid sums.
-- **[2026-01-29] Open bidding toggle**
-  - Result: Added `market.open_bidding` (default off) to optionally reveal winning bid prices in the agent-visible market history string; added example config `configs/market_change_open_bid.yaml`.
-  - How to verify: `.venv/bin/python -m ssa.run_experiment --config configs/market_change_open_bid.yaml --no-model --quiet --steps 2 --replicates 1` and confirm the prompt trace includes `@$<winning_price>`.
-- **[2026-01-29] Open bidding bid-distribution disclosure**
-  - Result: When `market.open_bidding: true`, agent-facing market history now also includes a compact per-job bid summary (`BIDS: ...`) for the shown rounds.
-  - How to verify: run the same open-bid smoke command above and confirm the prompt trace includes a `BIDS:` line.
+- [ ] Add dated entries here as tasks complete, with result + exact verify command.
+

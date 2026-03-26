@@ -10,6 +10,7 @@
 - `tests/`: lightweight, pytest-style tests (`test_*.py`).
 - `assets/`: small data/config files (treat anything named “secrets” as sensitive).
 - `logs/`: experiment outputs and run artifacts.
+- `ssa_code`: this is the submission version of the code to ensure anonymity etc. IGNORE THIS FOLDER
 - Root notebooks/scripts: `demo.ipynb`, `analysis*.ipynb`, `exp_*.py`, `explore*.py` (mostly research/experiments).
 
 ## Build, Test, and Development Commands
