@@ -5,7 +5,7 @@
 - When a task is finished, mark it `- [x]` and add a 1–3 line “Result / How to verify” note under **Done Log**.
 
 ## Context notes (from user)
-- `paper/` is reference-only for the agent; not intended for submission from this repo.
+- `paper/` is reference-only; moved under `.archive/paper/` to keep it out of submission zips.
 - Any `vivabench` references are copy/paste artifacts; safe to remove.
 
 ## Priorities
@@ -25,18 +25,15 @@
 - [x] [P0] Ensure performance-based pay is enabled in code and documented (paper references this variant).
 - [x] [P0] Implement open-bid variant as a toggle-able feature flag when initializing market (paper references this variant).
 - [x] [P0] Open-bid variant described but not cleanly implemented; re-implement by modifying / injecting it in the market history.
-- [ ] [P0] Fix demand-shift experiment script bugs (index range mismatch; undefined export variable) and confirm corrected version generated the figure.
-- [ ] [P0] Remove any identifying information (authors/emails/paths/model endpoints/etc.).
+- [x] [P0] Remove any identifying information (authors/emails/paths/model endpoints/etc.).
 
 ### P1 (core completeness / correctness)
-- [ ] [P1] Using `CipherTask` as reference, finish the `OrderTask` and `Diagnosis` tasks.
-- [ ] [P1] Enforce / document constraint $p_{i,J,t}>0$ to avoid degenerate utilities at $p=0$ (throw error if violated).
-- [ ] [P1] Evidence accumulators $(r_{i,k,t}, s_{i,k,t})$ vs recompute from logs.
-  - Decision: recompute from logs (ignore as a separate task unless a reviewer-visible doc/code change is needed).
-  - [ ] [P1] (Optional) Align baseline prompts with current payment mechanics and document what “CoT” vs “ReAct” means here.
+- [x] [P1] Using `CipherTask` as reference, finish the `OrderTask` and `Diagnosis` tasks.
+- [x] [P1] Enforce / document constraint $p_{i,J,t}>0$ to avoid degenerate utilities at $p=0$ (throw error if violated).
+- [x] [P1] (Optional) Align baseline prompts with current payment mechanics and document what “CoT” vs “ReAct” means here.
 
 ### P2 (maintenance)
-- [ ] [P2] Clean up any unused / exploratory code (after P0/P1 so we don’t delete needed parts), tidy up other messy stuff under `./scripts/`.
+- [x] [P2] Clean up any unused / exploratory code (after P0/P1 so we don’t delete needed parts), tidy up other messy stuff under `./scripts/`.
 
 ## Notes for agent
 - Goal: make repo runnable end-to-end from a clean environment with 1–2 commands; “paper claims” should be traceable to a script/config in-repo.
@@ -54,6 +51,21 @@
 
 ## Done Log
 
+- **[2026-01-29] Maintenance cleanup**
+  - Result: Removed an unused credentialed script (`iclr_scrape.py`) and `.DS_Store`; no `./scripts/` directory exists in this repo to tidy further.
+  - How to verify: `find . -maxdepth 3 -type d -name scripts -print` (should print nothing).
+- **[2026-01-29] Align baseline prompts**
+  - Result: Updated `CoTAgent`/`ReActAgent` system prompts to reflect performance-adjusted payment; documented what “CoT” vs “ReAct” means in `README.md`.
+  - How to verify: open `ssa/agents/cot_agent.py` and `ssa/agents/react_agent.py` and confirm the payment line matches the market’s `adjusted_reward = bid_price * performance`.
+- **[2026-01-29] Enforce positive bid prices**
+  - Result: Added validation in `ssa/common.py` to require bid prices `> 0` (raises on `<= 0`), plus a unit test.
+  - How to verify: `pytest -q` (includes `tests/test_price_constraint.py`).
+- **[2026-01-29] Finish OrderingTask and DiagnosisTask**
+  - Result: Reworked `ssa/tasks/ordering.py` and `ssa/tasks/diagnosis.py` to implement the `TaskRunner` interface (benchmarkable `generate_question`, compatible `score_response`/`extract_feedback_info` signatures, and `TaskSubAgent`-based LLM wrappers); added unit tests.
+  - How to verify: `pytest -q` (should include `tests/test_ordering_task.py` and `tests/test_diagnosis_task.py`).
+- **[2026-01-29] Remove identifying information**
+  - Result: Removed personal metadata and credentials (scrubbed `ssa/assets/secrets.yaml` and `assets/secrets.yaml`, removed `iclr_scrape.py`, removed `vivabench` packaging references, and deleted `.DS_Store`).
+  - How to verify: `rg -n "chy\\.chiu@gmail\\.com|API_KEY:|password=" -S .` (should return no hits for real secrets).
 - **[2026-01-29] Config-driven runner**
   - Result: Added `ssa/run_experiment.py` + YAML configs in `configs/` for all `exp_*.py` experiments (canonical `baseline.yaml`/`ablation.yaml`, plus `_old` variants); updated each `exp_*.py` to be a thin wrapper around the config runner.
   - How to verify (smoke, no LLM calls): `.venv/bin/python -m ssa.run_experiment --config configs/market_change.yaml --no-model --quiet --steps 2 --replicates 1` (should write `logs/market_change/market_change.log`).

@@ -1,0 +1,125 @@
+seed: 123
+runs:
+  - name: l2m_ssa
+    steps: 100
+    n_replicates: 5
+    replicate_start: 0
+    output_template: logs/baseline/l2m_ssa_{replicate_id}.log
+    market:
+      market_limit: 3
+      market_pref_limit: 5
+      agent_pref_limit: 5
+      history_limit: 10
+      skill_phi: 0.1
+      rep_window: 5
+      rep_lambda: 0.5
+      rep_sensitivity: 1
+      gumbel_t: 0.01
+    tasks:
+      - { type: ProxyTask, id: SK-A, params: { noise: 0.05 } }
+      - { type: ProxyTask, id: SK-B, params: { noise: 0.05 } }
+      - { type: ProxyTask, id: SK-C, params: { noise: 0.05 } }
+      - { type: ProxyTask, id: SK-D, params: { noise: 0.05 } }
+    jobs:
+      - { id: JB-A0, task_id: SK-A, job_p: 0.8, noise: 0.5, base_reward: 10 }
+      - { id: JB-A1, task_id: SK-A, job_p: 0.8, noise: 0.5, base_reward: 8 }
+      - { id: JB-A2, task_id: SK-A, job_p: 0.8, noise: 0.5, base_reward: 6 }
+      - { id: JB-A3, task_id: SK-A, job_p: 0.8, noise: 0.5, base_reward: 4 }
+      - { id: JB-B0, task_id: SK-B, job_p: 0.8, noise: 0.5, base_reward: 10 }
+      - { id: JB-B1, task_id: SK-B, job_p: 0.8, noise: 0.5, base_reward: 8 }
+      - { id: JB-B2, task_id: SK-B, job_p: 0.8, noise: 0.5, base_reward: 6 }
+      - { id: JB-B3, task_id: SK-B, job_p: 0.8, noise: 0.5, base_reward: 4 }
+      - { id: JB-C0, task_id: SK-C, job_p: 0.8, noise: 0.5, base_reward: 10 }
+      - { id: JB-C1, task_id: SK-C, job_p: 0.8, noise: 0.5, base_reward: 8 }
+      - { id: JB-C2, task_id: SK-C, job_p: 0.8, noise: 0.5, base_reward: 6 }
+      - { id: JB-C3, task_id: SK-C, job_p: 0.8, noise: 0.5, base_reward: 4 }
+      - { id: JB-D0, task_id: SK-D, job_p: 0.8, noise: 0.5, base_reward: 10 }
+      - { id: JB-D1, task_id: SK-D, job_p: 0.8, noise: 0.5, base_reward: 8 }
+      - { id: JB-D2, task_id: SK-D, job_p: 0.8, noise: 0.5, base_reward: 6 }
+      - { id: JB-D3, task_id: SK-D, job_p: 0.8, noise: 0.5, base_reward: 4 }
+    agents:
+      - type: ReActAgent
+        id_template: L2M-{i}
+        count: 4
+        verbose: false
+        model: { type: OpenAIClient, params: { effort: minimal } }
+      - type: SSAAgent
+        id_template: SSA-{i}
+        count: 4
+        verbose: false
+        model: { type: OpenAIClient, params: { effort: minimal } }
+      - type: PolicyAgent
+        ids: [GRDPL]
+        verbose: false
+        policy: { greedy: true, underbid_factor: 0.8, train_p: 0.1 }
+      - type: PolicyAgent
+        ids: [FIXPL]
+        verbose: false
+        policy:
+          greedy: false
+          underbid_factor: 0.9
+          task_preferences: [SK-A, SK-B, SK-C, SK-D]
+          job_preferences: [JB-A0, JB-A1, JB-A2, JB-A3, JB-B0, JB-B1, JB-B2, JB-B3, JB-C0, JB-C1, JB-C2, JB-C3, JB-D0, JB-D1, JB-D2, JB-D3]
+          train_p: 0.2
+
+  - name: llm_ssa
+    steps: 100
+    n_replicates: 5
+    replicate_start: 0
+    output_template: logs/baseline/llm_ssa_{replicate_id}.log
+    market:
+      market_limit: 3
+      market_pref_limit: 5
+      agent_pref_limit: 5
+      history_limit: 10
+      skill_phi: 0.1
+      rep_window: 5
+      rep_lambda: 0.5
+      rep_sensitivity: 1
+      gumbel_t: 0.01
+    tasks:
+      - { type: ProxyTask, id: SK-A, params: { noise: 0.05 } }
+      - { type: ProxyTask, id: SK-B, params: { noise: 0.05 } }
+      - { type: ProxyTask, id: SK-C, params: { noise: 0.05 } }
+      - { type: ProxyTask, id: SK-D, params: { noise: 0.05 } }
+    jobs:
+      - { id: JB-A0, task_id: SK-A, job_p: 0.8, noise: 0.5, base_reward: 10 }
+      - { id: JB-A1, task_id: SK-A, job_p: 0.8, noise: 0.5, base_reward: 8 }
+      - { id: JB-A2, task_id: SK-A, job_p: 0.8, noise: 0.5, base_reward: 6 }
+      - { id: JB-A3, task_id: SK-A, job_p: 0.8, noise: 0.5, base_reward: 4 }
+      - { id: JB-B0, task_id: SK-B, job_p: 0.8, noise: 0.5, base_reward: 10 }
+      - { id: JB-B1, task_id: SK-B, job_p: 0.8, noise: 0.5, base_reward: 8 }
+      - { id: JB-B2, task_id: SK-B, job_p: 0.8, noise: 0.5, base_reward: 6 }
+      - { id: JB-B3, task_id: SK-B, job_p: 0.8, noise: 0.5, base_reward: 4 }
+      - { id: JB-C0, task_id: SK-C, job_p: 0.8, noise: 0.5, base_reward: 10 }
+      - { id: JB-C1, task_id: SK-C, job_p: 0.8, noise: 0.5, base_reward: 8 }
+      - { id: JB-C2, task_id: SK-C, job_p: 0.8, noise: 0.5, base_reward: 6 }
+      - { id: JB-C3, task_id: SK-C, job_p: 0.8, noise: 0.5, base_reward: 4 }
+      - { id: JB-D0, task_id: SK-D, job_p: 0.8, noise: 0.5, base_reward: 10 }
+      - { id: JB-D1, task_id: SK-D, job_p: 0.8, noise: 0.5, base_reward: 8 }
+      - { id: JB-D2, task_id: SK-D, job_p: 0.8, noise: 0.5, base_reward: 6 }
+      - { id: JB-D3, task_id: SK-D, job_p: 0.8, noise: 0.5, base_reward: 4 }
+    agents:
+      - type: CoTAgent
+        id_template: LLM-{i}
+        count: 4
+        verbose: false
+        model: { type: OpenAIClient, params: { effort: minimal } }
+      - type: SSAAgent
+        id_template: SSA-{i}
+        count: 4
+        verbose: false
+        model: { type: OpenAIClient, params: { effort: minimal } }
+      - type: PolicyAgent
+        ids: [GRDPL]
+        verbose: false
+        policy: { greedy: true, underbid_factor: 0.8, train_p: 0.1 }
+      - type: PolicyAgent
+        ids: [FIXPL]
+        verbose: false
+        policy:
+          greedy: false
+          underbid_factor: 0.9
+          task_preferences: [SK-A, SK-B, SK-C, SK-D]
+          job_preferences: [JB-A0, JB-A1, JB-A2, JB-A3, JB-B0, JB-B1, JB-B2, JB-B3, JB-C0, JB-C1, JB-C2, JB-C3, JB-D0, JB-D1, JB-D2, JB-D3]
+          train_p: 0.2
