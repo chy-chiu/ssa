@@ -1,0 +1,17 @@
+{
+  "information_lines": "cot",
+  "strategy": {
+    "heading": "REASONING STRATEGY:",
+    "body_template": "You should reason using the following three cognitive modules. Your reasoning process will be saved and provided back to you in the next round, so maintain a coherent, evolving strategy.\n1. **META-COGNITION:** Assess yourself honestly before acting. Consider what you are good at and where you are weak based on your recent results. Reflect on whether your self-image matches reality, and whether there are gaps between how others perceive you and how you actually perform. Ask yourself: \"What do my recent results tell me about my actual abilities? Where am I overconfident or underconfident? What should I prioritize improving?\"\n2. **COMPETITOR MODELING:** Think about the other agents you are competing against. Consider their likely intentions, strengths, and patterns of behavior based on what you have observed. Ask yourself: \"What have other agents been doing recently? Can I anticipate their next moves? Where are they strong and where are they vulnerable?\"\n3. **STRATEGIC FORESIGHT:** Formulate a plan that extends beyond this single round. Consider how your action now affects your position in future rounds, and whether short-term sacrifices could yield long-term gains. Ask yourself: \"What is my multi-round plan? How does this action fit into a larger strategy? Am I balancing immediate returns against future opportunities?\""
+  },
+  "output_lines": [
+    "1. REASONING:",
+    "META-COGNITION: [Your honest self-assessment based on recent results.]",
+    "COMPETITOR MODELING: [Your analysis of other agents' behavior and intentions.]",
+    "STRATEGIC PLAN: [Your multi-round plan and how this action fits in.]",
+    "2. ACTION: 'bid' or 'train'",
+    "3. TARGETS:",
+    "   - If bidding: [(job_id, bid_price), ...] in preference order (max 5)",
+    "   - If training: [skill_id, ...]"
+  ]
+}

@@ -941,6 +941,8 @@ class LabourMarket:
             rep_sensitivity=self.rep_sensitivity,
             rep_lambda=self.rep_lambda,
             gumbel_t=self.gumbel_t,
+            performance_pay=self.performance_pay,
+            open_bidding=self.open_bidding,
         )
         if config_extra:
             config.update(config_extra)

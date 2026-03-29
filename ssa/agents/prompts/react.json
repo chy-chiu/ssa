@@ -1,0 +1,15 @@
+{
+  "payment_mechanics_id": "performance_adjusted",
+  "information_lines": "information",
+  "strategy": {
+    "heading": "",
+    "body_template": ""
+  },
+  "output_lines": [
+    "1. REASONING: Your reasoning for your actions this round",
+    "2. ACTION: 'bid' or 'train'",
+    "3. TARGETS:",
+    "   - If bidding: [(job_id, bid_price), ...] in preference order (max 5)",
+    "   - If training: [skill_id, ...]"
+  ]
+}

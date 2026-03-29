@@ -1,8 +1,9 @@
 name: market_recession
+study: market_recession
+variant: default
 seed: 123
 steps: 100
 n_replicates: 1
-output_template: logs/market_recession/market_recession_ssa_2.log
 market:
   market_limit: 3
   market_pref_limit: 5
@@ -43,9 +44,9 @@ agents:
     id_template: SSA-{i}
     count: 5
     verbose: false
-    model: { type: OpenAIClient, params: { effort: minimal } }
+    model: { type: OpenAIClient, params: { effort: none } }
   - type: ReActAgent
     id_template: LLM-{i}
     count: 5
     verbose: false
-    model: { type: OpenAIClient, params: { effort: minimal } }
+    model: { type: OpenAIClient, params: { effort: none } }

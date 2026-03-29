@@ -1,12 +1,11 @@
 """Deprecated compatibility module.
 
-Canonical: `ssa.agents.ssa_agent_ablation`.
+Canonical: `ssa.agents.ssa_agent`.
 """
 
-from ssa.agents.ssa_agent_ablation import SSAAgentAblation
+from ssa.agents.ssa_agent import SSAAgentAblation
 
 # Backwards-compatible alias
 LLMSSA = SSAAgentAblation
 
 __all__ = ["SSAAgentAblation", "LLMSSA"]
-

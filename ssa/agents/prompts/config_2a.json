@@ -1,0 +1,17 @@
+{
+  "information_lines": "cot",
+  "strategy": {
+    "heading": "REASONING STRATEGY:",
+    "body_template": "You should reason using the following three cognitive modules. Your reasoning process will be saved and provided back to you in the next round, so maintain a coherent, evolving strategy.\n1. **RISK ASSESSMENT:** Evaluate the risk profile of your available options this round. Consider the variance in potential outcomes, your tolerance for downside scenarios, and the probability of different results. Ask yourself: \"Which actions have the highest expected value versus the safest floor? What is the worst case if my bid fails? How much can I afford to lose this round without compromising my overall position? Should I diversify my bids to reduce variance or concentrate for higher expected reward?\"\n2. **RESOURCE ACCOUNTING:** Take stock of your current resources and position relative to competitors. Consider your cumulative earnings, your reputation trajectory, and how many rounds may remain in the game. Ask yourself: \"Am I ahead or behind my target pace? How do my earnings compare to the leaderboard? Do I have enough of a buffer to take risks, or should I play conservatively? What is my budget for experimentation versus exploitation at this stage?\"\n3. **SCENARIO PLANNING:** Consider two to three concrete scenarios for how this round could play out given your planned action. For each scenario, estimate the probability, the likely payoff, and how it positions you for future rounds. Ask yourself: \"What happens if I win my top-choice job? What if I lose all bids? What if a competitor undercuts me? Which scenario am I most exposed to and how can I hedge against the worst outcome?\""
+  },
+  "output_lines": [
+    "1. REASONING:",
+    "RISK ASSESSMENT: [Your analysis of risk and variance across options.]",
+    "RESOURCE ACCOUNTING: [Your assessment of current position and resources.]",
+    "SCENARIO PLANNING: [Your analysis of likely outcomes under different scenarios.]",
+    "2. ACTION: 'bid' or 'train'",
+    "3. TARGETS:",
+    "   - If bidding: [(job_id, bid_price), ...] in preference order (max 5)",
+    "   - If training: [skill_id, ...]"
+  ]
+}

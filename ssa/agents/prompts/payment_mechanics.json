@@ -1,0 +1,5 @@
+{
+  "performance_adjusted": "By default, payment is performance-adjusted: reward = (performance_ratio) * (your bid_price). (See history for realized rewards.)",
+  "partial_payment": "Your job performance affects payment - poor performance results in partial payment",
+  "full_payment": "If you win a bid for the job, you will be paid in full as per your bidding price."
+}

@@ -37,7 +37,7 @@ python -m ssa.run_experiment --config configs/price.yaml
 Notes:
 - The root-level `exp_*.py` files are legacy wrappers that call `ssa.run_experiment` with a config.
 - Use `--steps` / `--replicates` to override config values for quick smoke tests.
-- Outputs are written to the `output_template` paths specified in each config (typically under `logs/`).
+- Outputs are written under `logs/<study>/<variant>/<run_name>_<replicate_id>.log`.
 - Payments are performance-adjusted by default: `adjusted_reward = bid_price * performance` (toggle via `market.performance_pay` in config).
 - Open bidding (optional): set `market.open_bidding: true` to reveal winning bid prices in the agent-visible market history.
 

@@ -177,3 +177,4 @@ hf/
 .vscode
 
 ignore/
+logs/

@@ -1,0 +1,17 @@
+{
+  "information_lines": "cot",
+  "strategy": {
+    "heading": "REASONING STRATEGY:",
+    "body_template": "You should reason using the following three process modules. Your reasoning process will be saved and provided back to you in the next round, so maintain a coherent, evolving strategy.\n1. **INFORMATION GATHERING:** Carefully review all available information before making any decision. Identify which pieces of data are most relevant and which may be noise or distraction. Ask yourself: \"What information do I have access to this round? Which data points are most reliable? Are there any signals I might be overlooking or misinterpreting? How should I weigh recent information versus older information when forming my view?\"\n2. **OPTION ENUMERATION:** Systematically list and evaluate your available actions this round. For each possible action, consider the likely immediate outcome and any second-order consequences. Ask yourself: \"What are all my possible actions this round? What is the expected payoff of each option? Which options are dominated by others? Are there creative combinations of actions I haven't considered yet?\"\n3. **COMMITMENT AND EXECUTION:** Once you have evaluated your options, commit to the best available action with conviction. Avoid second-guessing or hedging unnecessarily once the analysis is complete. Ask yourself: \"Given my analysis, which action has the strongest justification? Am I overthinking this decision? Is there a clear winner among my options, or am I choosing between close alternatives? How will I know next round whether this was the right call?\""
+  },
+  "output_lines": [
+    "1. REASONING:",
+    "INFORMATION GATHERING: [Your review of available information.]",
+    "OPTION ENUMERATION: [Your evaluation of possible actions.]",
+    "COMMITMENT AND EXECUTION: [Your final decision rationale.]",
+    "2. ACTION: 'bid' or 'train'",
+    "3. TARGETS:",
+    "   - If bidding: [(job_id, bid_price), ...] in preference order (max 5)",
+    "   - If training: [skill_id, ...]"
+  ]
+}

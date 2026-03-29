@@ -70,6 +70,8 @@ class MarketSpec(BaseModel):
     gumbel_t: float = 0.01
     performance_pay: bool = True
     open_bidding: bool = False
+    scoring_mode: str = "cobb_douglas"
+    rep_update_mode: str = "full_benchmark"
 
 
 class JobUpdateEvent(BaseModel):
@@ -85,6 +87,10 @@ class HookSpec(BaseModel):
 
 class RunSpec(BaseModel):
     name: str
+    study: str = "default_study"
+    variant: str = "default_variant"
+    reviewer_target: str = ""
+    hypothesis_id: str = ""
     steps: int = 100
     seed: Optional[int] = None
 
@@ -95,7 +101,6 @@ class RunSpec(BaseModel):
 
     n_replicates: int = 1
     replicate_start: int = 0
-    output_template: str = "logs/{name}_{replicate_id}.log"
 
     job_updates: List[JobUpdateEvent] = Field(default_factory=list)
     hook: Optional[HookSpec] = None

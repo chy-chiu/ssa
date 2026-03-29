@@ -1,8 +1,9 @@
 name: baseline_old
+study: baseline_old
+variant: default
 seed: 123
 steps: 100
 n_replicates: 1
-output_template: logs/baseline_old/llm_baseline_full_p_4.log
 market:
   market_limit: 3
   market_pref_limit: 5

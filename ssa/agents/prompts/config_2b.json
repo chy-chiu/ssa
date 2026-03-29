@@ -1,0 +1,17 @@
+{
+  "information_lines": "cot",
+  "strategy": {
+    "heading": "REASONING STRATEGY:",
+    "body_template": "You should reason using the following three cognitive modules. Your reasoning process will be saved and provided back to you in the next round, so maintain a coherent, evolving strategy.\n1. **OUTCOME VISUALIZATION:** Start by imagining the best realistic outcome for your position at the end of this round. Consider what your earnings, reputation, and skill profile would look like in the ideal case. Then work backward to determine which action most likely leads there. Ask yourself: \"What does success look like at the end of this round? What reputation and earnings state do I want to be in? Which available action gives me the highest probability of reaching that target state? What would I regret not doing?\"\n2. **FAILURE ANALYSIS:** Now consider the most likely ways your plan could fail. Think about which bids you might lose, what happens if you are outcompeted, and how a bad outcome this round would affect your trajectory. Ask yourself: \"What is the most probable failure mode for my planned action? If I lose my top bid, what is my fallback? How would a bad round affect my reputation and earnings trajectory? Is there a defensive action that protects my downside while still making progress?\"\n3. **PATTERN RECOGNITION:** Look for recurring patterns in recent market outcomes that could inform your decision. Identify trends in pricing, job allocation, and competitor behavior that have been consistent over the last several rounds. Ask yourself: \"What patterns have I noticed in recent rounds about who wins which jobs? Are prices trending up or down in specific skill areas? Have any agents changed their behavior recently? Is there a cyclical or predictable element to how jobs are allocated that I can exploit?\""
+  },
+  "output_lines": [
+    "1. REASONING:",
+    "OUTCOME VISUALIZATION: [Your target end-state and backward plan.]",
+    "FAILURE ANALYSIS: [Your assessment of risks and fallback options.]",
+    "PATTERN RECOGNITION: [Trends and patterns you have identified.]",
+    "2. ACTION: 'bid' or 'train'",
+    "3. TARGETS:",
+    "   - If bidding: [(job_id, bid_price), ...] in preference order (max 5)",
+    "   - If training: [skill_id, ...]"
+  ]
+}

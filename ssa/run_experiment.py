@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import importlib
 import random
+import subprocess
+from collections import Counter
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -81,13 +83,14 @@ def _resolve_agent_class(type_name: str):
         "CoTAgent": "ssa.agents.cot_agent:CoTAgent",
         "ReActAgent": "ssa.agents.react_agent:ReActAgent",
         "SSAAgent": "ssa.agents.ssa_agent:SSAAgent",
-        "SSAAgentAblation": "ssa.agents.ssa_agent_ablation:SSAAgentAblation",
+        "SSAAgentAblation": "ssa.agents.ssa_agent:SSAAgentAblation",
+        "ConfigAgent": "ssa.agents.config_agent:ConfigAgent",
 
         # Backwards-compatible aliases
         "LLMAgent": "ssa.agents.cot_agent:CoTAgent",
         "LLM2Agent": "ssa.agents.react_agent:ReActAgent",
         "LLMSSA": "ssa.agents.ssa_agent:SSAAgent",
-        "LLMSSA_Ablation": "ssa.agents.ssa_agent_ablation:SSAAgentAblation",
+        "LLMSSA_Ablation": "ssa.agents.ssa_agent:SSAAgentAblation",
         "PolicyAgent": "ssa.agents.policy:PolicyAgent",
         "OracleAgent": "ssa.agents.oracle:OracleAgent",
         "StaticAgent": "ssa.agents.agent:StaticAgent",
@@ -112,6 +115,35 @@ def _build_tasks(task_specs: List[Dict[str, Any]]):
             raise ValueError(f"Only ProxyTask supported in configs right now, got {spec.get('type')!r}")
         tasks.append(ProxyTask(task_id=spec["id"], **(spec.get("params") or {})))
     return tasks
+
+
+def _safe_git_commit() -> Optional[str]:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        commit = result.stdout.strip()
+        return commit if commit else None
+    except Exception:
+        return None
+
+
+def _agent_mix(agent_specs: List[Dict[str, Any]]) -> Dict[str, int]:
+    counts: Counter[str] = Counter()
+    for spec in agent_specs:
+        count = int(spec.get("count", 0))
+        ids = spec.get("ids")
+        if ids is not None:
+            count = len(ids)
+        counts[str(spec.get("type", "Unknown"))] += max(count, 0)
+    return dict(counts)
+
+
+def _resolve_output_path(run: RunSpec, replicate_id: int) -> str:
+    return f"logs/{run.study}/{run.variant}/{run.name}_{replicate_id}.log"
 
 
 def _build_jobs(job_specs: List[Dict[str, Any]]):
@@ -215,16 +247,28 @@ def _run_one(
         if not quiet:
             logger.info(summary)
 
-    out_path = run.output_template.format(name=run.name, replicate_id=replicate_id, replicate_idx=replicate_idx)
+    out_path = _resolve_output_path(run, replicate_id=replicate_id)
     _ensure_parent_dir(out_path)
+    Path(out_path).parent.joinpath("analysis").mkdir(parents=True, exist_ok=True)
+
+    run_agent_specs = [a.model_dump() for a in run.agents]
+    git_commit = _safe_git_commit()
     market.export(
         out_path,
         config_extra={
+            "study": run.study,
+            "variant": run.variant,
+            "reviewer_target": run.reviewer_target,
+            "hypothesis_id": run.hypothesis_id,
+            "git_commit": git_commit,
             "suite_seed": suite_seed,
             "effective_seed": seed,
             "replicate_id": replicate_id,
             "replicate_idx": replicate_idx,
             "run_name": run.name,
+            "scoring_mode": run.market.scoring_mode,
+            "rep_update_mode": run.market.rep_update_mode,
+            "agent_mix": _agent_mix(run_agent_specs),
             "runner_config": run.model_dump(),
         },
     )
