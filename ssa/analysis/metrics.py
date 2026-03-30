@@ -211,6 +211,16 @@ def get_summary_df(exp_log: ExperimentLog, fp: str = "") -> pd.DataFrame:
     summary_df["all_bids"] = pd.DataFrame(all_agent_bids).mean()
     summary_df["winning_bids"] = pd.DataFrame(all_winning_bids).mean()
     summary_df["win_prio"] = action_df.query("winrate > 0").groupby("agent_id")["winning_priority"].mean()
+    job_perf_rows = [
+        {"agent_id": perf.agent_id, "performance": float(perf.performance)}
+        for perf in (exp_log.job_performance or [])
+        if int(getattr(perf, "round", -1)) >= 0
+    ]
+    if job_perf_rows:
+        mean_perf_by_agent = pd.DataFrame(job_perf_rows).groupby("agent_id")["performance"].mean()
+        summary_df["mean_job_performance"] = mean_perf_by_agent
+    else:
+        summary_df["mean_job_performance"] = 0.0
 
     token_rows = (exp_log.token_usage or {}).get("agent_token_usage", [])
     completion_tokens = {}
@@ -264,6 +274,7 @@ def get_summary_df(exp_log: ExperimentLog, fp: str = "") -> pd.DataFrame:
         "avg_base_price",
         "all_bids",
         "winning_bids",
+        "mean_job_performance",
         "train_p",
         "train_target",
         "skill_sum",
