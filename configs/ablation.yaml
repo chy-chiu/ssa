@@ -1,10 +1,9 @@
 name: ablation
-study: ablation
-variant: default
 seed: 123
 steps: 50
 n_replicates: 13
 replicate_start: 7
+output_template: logs/ablation/ablation50_{replicate_id}.log
 market:
   market_limit: 3
   market_pref_limit: 5
@@ -42,38 +41,38 @@ agents:
     ids: [AG-A]
     verbose: false
     params: { metacog: true, competitor: true, planning: true }
-    model: { type: OpenAIClient, params: { effort: none } }
+    model: { type: OpenAIClient, params: { effort: minimal } }
   - type: SSAAgentAblation
     ids: [AG-B]
     verbose: false
     params: { metacog: true, competitor: false, planning: false }
-    model: { type: OpenAIClient, params: { effort: none } }
+    model: { type: OpenAIClient, params: { effort: minimal } }
   - type: SSAAgentAblation
     ids: [AG-C]
     verbose: false
     params: { metacog: false, competitor: true, planning: false }
-    model: { type: OpenAIClient, params: { effort: none } }
+    model: { type: OpenAIClient, params: { effort: minimal } }
   - type: SSAAgentAblation
     ids: [AG-D]
     verbose: false
     params: { metacog: false, competitor: false, planning: true }
-    model: { type: OpenAIClient, params: { effort: none } }
+    model: { type: OpenAIClient, params: { effort: minimal } }
   - type: SSAAgentAblation
     ids: [AG-E]
     verbose: false
     params: { metacog: true, competitor: true, planning: false }
-    model: { type: OpenAIClient, params: { effort: none } }
+    model: { type: OpenAIClient, params: { effort: minimal } }
   - type: SSAAgentAblation
     ids: [AG-F]
     verbose: false
     params: { metacog: true, competitor: false, planning: true }
-    model: { type: OpenAIClient, params: { effort: none } }
+    model: { type: OpenAIClient, params: { effort: minimal } }
   - type: SSAAgentAblation
     ids: [AG-G]
     verbose: false
     params: { metacog: false, competitor: true, planning: true }
-    model: { type: OpenAIClient, params: { effort: none } }
+    model: { type: OpenAIClient, params: { effort: minimal } }
   - type: ReActAgent
     ids: [AG-H]
     verbose: false
-    model: { type: OpenAIClient, params: { effort: none } }
+    model: { type: OpenAIClient, params: { effort: minimal } }

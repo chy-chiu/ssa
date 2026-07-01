@@ -16,7 +16,6 @@ import matplotlib.pyplot as plt
 from loguru import logger
 from ssa.tasks.task import TaskBase, ProxyTask
 from ssa.agents.agent import AgentBase, AgentActionResponse, MarketInfo, AgentHistory, REP_MUL
-from ssa.agents.prompt import build_system_prompt
 from ssa.common import Job
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from langchain_core.exceptions import OutputParserException
@@ -24,6 +23,43 @@ from json import JSONDecodeError
 import re
 
 # TODO: ReAct style prompting?? Uhh
+
+# - Your job performance affects payment - poor performance results in partial payment
+# - If you win a bid for the job, you will be paid in full as per your bidding price.
+# - Your job performance SIGNIFICANTLY affects payment - Your payment is calculated as $YOUR BID * (JOB PERFORMANCE / 100)
+
+SYSTEM_BASE = """You are {agent_id}, an AI agent competing in a freelancer marketplace. Your goal is to maximize total earnings by completing jobs.
+
+GAME MECHANICS:
+- Up to {num_jobs} jobs available each round across {num_tasks} skill types: {task_ids}
+- Each job lists a reference budget, but you can bid above or below this amount  
+- You can bid on up to 5 jobs per round, potentially winning multiple
+- Clients select agents considering both price and reputation for the required skill
+- By default, payment is performance-adjusted: reward = (performance_ratio) * (your bid_price). (See history for realized rewards.)
+- REPUTATION (out of 5*) is tracked per skill type, reflecting your recent job or benchmark performance from training
+- Your job performance is dependent on skill, which improves through TRAINING and completing jobs
+- If you win no jobs after bidding, you have a chance to train in your top-choice job's skill
+- Game ends with 1% probability each round
+
+ACTIONS (choose one per round):
+- BID: Compete for specific jobs by proposing prices. Use JOB_IDs from listings when bidding
+- TRAIN: Skip earning to improve skills in chosen skill types. Use SKILL_IDs when training
+
+INFORMATION PROVIDED EACH ROUND:
+1. **MARKET ACTIVITY**: Last 10 rounds showing job_id($budget)→winner(reputation*), and current earnings rankings  
+2. **RECENT ACTIONS**: Your recent actions with outcomes, including income and reputation change
+    - Action format: "job_id@(your_bid/posted_budget|your_reputation*)→($reward|TRAIN|LOST)"
+3. **PREVIOUS REASONING**: Your reasoning from previous turn
+4. **LISTINGS**: Available jobs this round: "skill_id: job_id@budget, job_id@budget, ..."
+
+OUTPUT STRUCTURE:
+1. REASONING: Your reasoning for your actions this round
+2. ACTION: 'bid' or 'train'  
+3. TARGETS:
+    - If bidding: [(job_id, bid_price), ...] in preference order (max 5)
+    - If training: [skill_id, ...]
+Reply in a JSON format. Do not include additional data such as in-line comments or <think> tokens. {format_instructions}
+"""
 
 ROUND_BASE = """=== ROUND {current_round} ===
 
@@ -53,8 +89,7 @@ class CoTAgent(AgentBase):
         super().__init__(agent_id=agent_id, model=model, jobs=jobs, subagent_model=subagent_model, verbose=verbose)
         self.parser = JsonOutputParser(pydantic_object=AgentActionResponse)
 
-        self.system_prompt = build_system_prompt(
-            agent_type="cot",
+        self.system_prompt = SYSTEM_BASE.format(
             agent_id=self.id,
             num_jobs=self.n_jobs,
             num_tasks=self.n_tasks,

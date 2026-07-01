@@ -1,3 +1,12 @@
+Metadata-Version: 2.4
+Name: ssa
+Version: 0.0.1
+License-Expression: MIT
+Classifier: Programming Language :: Python :: 3
+Classifier: Operating System :: OS Independent
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+
 # SSA: Skill-Based Labour Market Simulation
 
 This repository contains the SSA market simulator, agent implementations, and config-driven experiment runner.
@@ -37,9 +46,13 @@ python -m ssa.run_experiment --config configs/price.yaml
 Notes:
 - The root-level `exp_*.py` files are legacy wrappers that call `ssa.run_experiment` with a config.
 - Use `--steps` / `--replicates` to override config values for quick smoke tests.
-- Outputs are written to the `output_template` paths specified in each config (typically under `logs/`).
+- Outputs are written under `logs/<study>/<variant>/<run_name>_<replicate_id>.log`.
 - Payments are performance-adjusted by default: `adjusted_reward = bid_price * performance` (toggle via `market.performance_pay` in config).
 - Open bidding (optional): set `market.open_bidding: true` to reveal winning bid prices in the agent-visible market history.
+- Client scoring mode is configurable via `market.scoring_mode`:
+  - `cobb_douglas` (default): CES scoring with `market.scoring_rho` (`0.0` = Cobb-Douglas; non-zero = CES variant).
+  - `linear`: linear blend of reputation and inverse normalized bid.
+  - `llm`: a separate LLM call ranks candidate workers per job (configure with `market.scoring_llm_model`).
 
 ## Demo notebook
 

@@ -1,10 +1,9 @@
 name: moral
-study: moral
-variant: default
 seed: 123
 steps: 100
 n_replicates: 3
 replicate_start: 0
+output_template: logs/moral/full_{replicate_id}.log
 market:
   market_limit: 3
   market_pref_limit: 5
@@ -34,4 +33,4 @@ agents:
     id_template: agent_{i}
     count: 6
     verbose: false
-    model: { type: OpenAIClient, params: { effort: none } }
+    model: { type: OpenAIClient, params: { effort: minimal } }

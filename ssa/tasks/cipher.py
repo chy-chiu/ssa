@@ -1,7 +1,6 @@
 # %%
 import random
 import string
-from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 from ssa.tasks.task import TaskBase, Question
 from langchain.schema import SystemMessage, HumanMessage
@@ -29,8 +28,7 @@ class CipherTask(TaskBase):
         self.cipher_mapping: Dict[str, str] = {}  # A->X, B->Y, etc.
         self.reverse_mapping: Dict[str, str] = {}  # X->A, Y->B, etc.
 
-        words_path = Path(__file__).resolve().parents[1] / "assets" / "words.txt"
-        with words_path.open("r", encoding="utf-8") as f:
+        with open("../assets/words.txt", "r") as f:
             self.words = [s.upper().strip("\n") for s in f.readlines()]
 
     def generate_ground_truth(self, seed: int = None):
